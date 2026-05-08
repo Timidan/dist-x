@@ -199,12 +199,6 @@
           },
           "signer": false,
           "writable": true
-        },
-        {
-          "init": true,
-          "name": "recipient",
-          "signer": false,
-          "writable": true
         }
       ],
       "args": [
