@@ -11,7 +11,9 @@ Cargo.lock.bak
 .env.local
 .scaffold
 .scaffold-setup.log
-vendor/
+vendor/*
+!vendor/nssa_core/
+!vendor/nssa_core/**
 .superpowers/
 .vscode/
 .codex
