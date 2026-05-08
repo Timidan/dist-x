@@ -28,6 +28,11 @@ std::string installFakeCli() {
            << "    test \"$2\" = '--name'\n"
            << "    echo \"{\\\"status\\\":\\\"TOKEN_ID_OK\\\",\\\"token_id\\\":\\\"Public/faketoken\\\",\\\"name\\\":\\\"$3\\\"}\"\n"
            << "    ;;\n"
+           << "  mint-token)\n"
+           << "    test \"$2\" = '--name'\n"
+           << "    test \"$4\" = '--total-supply'\n"
+           << "    echo \"{\\\"status\\\":\\\"TOKEN_MINTED\\\",\\\"token_id\\\":\\\"Public/faketoken\\\",\\\"supply_account_id\\\":\\\"Public/fakesupply\\\",\\\"total_supply\\\":\\\"$5\\\"}\"\n"
+           << "    ;;\n"
            << "  inspect-csv)\n"
            << "    test \"$2\" = '--csv'\n"
            << "    echo '{\"status\":\"CSV_OK\",\"row_count\":1,\"total_amount\":100}'\n"
@@ -116,6 +121,15 @@ LOGOS_TEST(module_exposes_token_id_generation) {
     LOGOS_ASSERT_CONTAINS(result, "TOKEN_ID_OK");
     LOGOS_ASSERT_CONTAINS(result, "Public/faketoken");
     LOGOS_ASSERT_CONTAINS(result, "demo-token");
+}
+
+LOGOS_TEST(module_exposes_token_minting) {
+    installFakeCli();
+    DistributionxClientImpl impl;
+    auto result = impl.mintToken("demo-token", "3000");
+    LOGOS_ASSERT_CONTAINS(result, "TOKEN_MINTED");
+    LOGOS_ASSERT_CONTAINS(result, "Public/faketoken");
+    LOGOS_ASSERT_CONTAINS(result, "Public/fakesupply");
 }
 
 LOGOS_TEST(module_reports_missing_background_jobs) {

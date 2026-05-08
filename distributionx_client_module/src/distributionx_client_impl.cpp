@@ -217,20 +217,22 @@ std::string DistributionxClientImpl::startCreateWallet(const std::string& state_
     return startJob("createWallet", "create-wallet --out-dir " + shellQuote(state_dir));
 }
 
-std::string DistributionxClientImpl::initDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery) {
+std::string DistributionxClientImpl::initDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& tokenSourceAccount, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery) {
     return runCli("init --csv " + shellQuote(csvPath) +
                   " --distributor " + shellQuote(distributor) +
                   " --token " + shellQuote(token) +
+                  " --token-source-account " + shellQuote(tokenSourceAccount) +
                   " --rpc " + shellQuote(rpc) +
                   " --expiry " + shellQuote(expiryUnix) +
                   " --recovery " + shellQuote(recovery));
 }
 
-std::string DistributionxClientImpl::startInitDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery) {
+std::string DistributionxClientImpl::startInitDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& tokenSourceAccount, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery) {
     return startJob("initDistribution",
                     "init --csv " + shellQuote(csvPath) +
                     " --distributor " + shellQuote(distributor) +
                     " --token " + shellQuote(token) +
+                    " --token-source-account " + shellQuote(tokenSourceAccount) +
                     " --rpc " + shellQuote(rpc) +
                     " --expiry " + shellQuote(expiryUnix) +
                     " --recovery " + shellQuote(recovery));
@@ -256,6 +258,14 @@ std::string DistributionxClientImpl::tokenId(const std::string& name) {
 
 std::string DistributionxClientImpl::startTokenId(const std::string& name) {
     return startJob("tokenId", "token-id --name " + shellQuote(name));
+}
+
+std::string DistributionxClientImpl::mintToken(const std::string& name, const std::string& totalSupply) {
+    return runCli("mint-token --name " + shellQuote(name) + " --total-supply " + shellQuote(totalSupply));
+}
+
+std::string DistributionxClientImpl::startMintToken(const std::string& name, const std::string& totalSupply) {
+    return startJob("mintToken", "mint-token --name " + shellQuote(name) + " --total-supply " + shellQuote(totalSupply));
 }
 
 std::string DistributionxClientImpl::loadDestinationPacket(const std::string& destinationPacketJsonPath) {

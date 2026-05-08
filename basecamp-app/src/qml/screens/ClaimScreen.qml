@@ -35,11 +35,6 @@ Item {
         }
     }
 
-    Component.onCompleted: if (appRoot) {
-        appRoot.refreshClaimantPubkey()
-        Qt.callLater(function() { appRoot.refreshClaimEligibility() })
-    }
-
     Topbar {
         id: topbar
         anchors.top: parent.top
@@ -223,7 +218,7 @@ Item {
                             label: ""
                             placeholder: "Path to shielded_destination.json"
                             text: appRoot ? appRoot.destinationPacket : ""
-                            onTextChanged: if (appRoot) {
+                            onTextChanged: if (appRoot && text !== appRoot.destinationPacket) {
                                 appRoot.destinationPacket = text
                                 appRoot.destinationCommitment = ""
                                 appRoot.resetClaimEligibility()
@@ -247,6 +242,47 @@ Item {
                         font.family: appRoot ? appRoot.theme.fontMono : "monospace"
                         font.pixelSize: 12
                         elide: Text.ElideRight
+                    }
+
+                    RowLayout {
+                        Layout.leftMargin: 140
+                        Layout.fillWidth: true
+                        visible: appRoot && appRoot.destinationPacket !== ""
+                        spacing: 10
+
+                        Text {
+                            text: "Balance"
+                            color: appRoot ? appRoot.theme.fg3 : "#94A3B8"
+                            font.pixelSize: 11
+                            font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
+                            Layout.preferredWidth: 68
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: appRoot ? appRoot.claimantBalanceText() : "-"
+                            color: appRoot && appRoot.claimantTokenBalanceError !== ""
+                                ? appRoot.theme.danger
+                                : (appRoot ? appRoot.theme.fg : "#0F172A")
+                            font.family: appRoot ? appRoot.theme.fontMono : "monospace"
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+                        GhostButton {
+                            theme: page.appRoot ? page.appRoot.theme : null
+                            text: "Refresh"
+                            enabled: appRoot && !appRoot.sampleRunning
+                            onClicked: if (appRoot) appRoot.refreshClaimPage()
+                        }
+                    }
+
+                    Text {
+                        Layout.leftMargin: 140
+                        Layout.fillWidth: true
+                        visible: appRoot && appRoot.claimantTokenBalanceError !== ""
+                        text: appRoot ? appRoot.claimantTokenBalanceError : ""
+                        color: appRoot ? appRoot.theme.danger : "#9F1239"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
                     }
 
                     CheckBox {
@@ -358,7 +394,7 @@ Item {
                     : "Not checked"
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: 300
-                Layout.minimumHeight: 270
+                Layout.minimumHeight: 310
 
                 Loader {
                     active: page.alreadyClaimed
@@ -384,6 +420,14 @@ Item {
                         Text { text: "Eligibility"; color: appRoot ? appRoot.theme.fg3 : "#94A3B8"; font.pixelSize: 11; font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"; Layout.fillWidth: true }
                         Text { text: page.alreadyClaimed ? "claimed" : (appRoot ? appRoot.claimEligibilityLabel() : "unchecked")
                                color: page.claimRejected ? (appRoot ? appRoot.theme.danger : "#9F1239") : (appRoot ? appRoot.theme.fg : "#0F172A"); font.pixelSize: 12; font.family: appRoot ? appRoot.theme.fontMono : "monospace" }
+                    }
+                    RowLayout {
+                        width: parent.width
+                        visible: appRoot && appRoot.destinationPacket !== ""
+                        Text { text: "Balance"; color: appRoot ? appRoot.theme.fg3 : "#94A3B8"; font.pixelSize: 11; font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"; Layout.fillWidth: true }
+                        Text { text: appRoot ? appRoot.claimantBalanceText() : "-"
+                               color: appRoot && appRoot.claimantTokenBalanceError !== "" ? appRoot.theme.danger : (appRoot ? appRoot.theme.fg : "#0F172A")
+                               font.pixelSize: 12; font.family: appRoot ? appRoot.theme.fontMono : "monospace" }
                     }
                     RowLayout {
                         width: parent.width

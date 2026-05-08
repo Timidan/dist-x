@@ -472,7 +472,6 @@ mod distributionx {
         #[account(init, pda = [literal("nullifier"), arg("airdrop_id"), arg("nullifier")])]
         nullifier_record: AccountWithMetadata,
         #[account(mut, pda = [literal("vault"), arg("airdrop_id")])] vault: AccountWithMetadata,
-        #[account(init)] recipient: AccountWithMetadata,
         airdrop_id: [u8; 32],
         bucket_id: u8,
         nullifier: [u8; 32],
@@ -507,12 +506,6 @@ mod distributionx {
                 "bucket id is outside the configured table",
             ));
         }
-        if account_id(&recipient) != claim_destination_commitment {
-            return Err(program_error(
-                E_BAD_DESTINATION_COMMITMENT,
-                "recipient account does not match claim destination commitment",
-            ));
-        }
 
         let journal = ClaimJournal::new(
             airdrop_id,
@@ -543,19 +536,17 @@ mod distributionx {
         let mut vault_post = vault.account;
         vault_post.balance = checked_sub_u128(vault_post.balance, u128::from(amount))?;
 
-        let mut recipient_post = recipient.account;
-        recipient_post.balance = checked_add_u128(recipient_post.balance, u128::from(amount))?;
-
         let nullifier_state = NullifierState {
             claimed_at: now_unix,
         };
+        let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
+        nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
         Ok(SpelOutput::execute(
             vec![
                 write_data(airdrop.account, &state)?,
-                write_data(nullifier_record.account, &nullifier_state)?,
+                nullifier_post,
                 vault_post,
-                recipient_post,
             ],
             vec![],
         ))

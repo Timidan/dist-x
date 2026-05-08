@@ -38,6 +38,8 @@ struct LocalAirdropState {
     airdrop_id: String,
     distributor: String,
     token_id: String,
+    #[serde(default)]
+    token_source_account: String,
     merkle_root: String,
     bucket_table_hash: String,
     bucket_table: Vec<u64>,
@@ -70,6 +72,8 @@ struct AirdropRegistryEntry {
     airdrop_id: String,
     distributor: String,
     token_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    token_source_account: String,
     merkle_root: String,
     bucket_table_hash: String,
     eligible_count: usize,
@@ -155,6 +159,14 @@ struct CheckedClaim {
     amount: u64,
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct TokenSettlementRequest {
+    token_id: String,
+    source_account: String,
+    recipient_account: String,
+    amount: u64,
+}
+
 pub fn run(cli: Cli) {
     if let Err(err) = run_inner(cli) {
         eprintln!("{}", plain_error(&err.to_string()));
@@ -168,10 +180,19 @@ fn run_inner(cli: Cli) -> CliResult<()> {
             csv,
             distributor,
             token,
+            token_source_account,
             rpc,
             expiry,
             recovery,
-        } => init(&csv, &distributor, &token, &rpc, expiry, &recovery),
+        } => init(
+            &csv,
+            &distributor,
+            &token,
+            token_source_account.as_deref(),
+            &rpc,
+            expiry,
+            &recovery,
+        ),
         Command::Fund { airdrop, amount } => fund(&airdrop, amount),
         Command::QueryTokenBalance {
             rpc,
@@ -270,6 +291,7 @@ fn init(
     csv: &str,
     distributor: &str,
     token: &str,
+    token_source_account: Option<&str>,
     rpc: &str,
     expiry: u64,
     recovery: &str,
@@ -281,6 +303,20 @@ fn init(
     fs::create_dir_all(&state_dir)?;
     let csv_text = fs::read_to_string(csv)?;
     let token_id = parse_id(token)?;
+    let token_source_account = token_source_account
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT")
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+    if !token_source_account.is_empty() {
+        parse_id(&token_source_account)?;
+    }
     let recovery_address = parse_id(recovery)?;
     let distributor = parse_id(distributor)?;
     let airdrop_name = airdrop_name();
@@ -303,6 +339,7 @@ fn init(
         "airdrop_id": hex::encode(built.airdrop_id),
         "distributor": hex::encode(distributor),
         "token_id": hex::encode(token_id),
+        "token_source_account": token_source_account.clone(),
         "merkle_root": hex::encode(built.bundle.merkle_root),
         "bucket_table_hash": hex::encode(built.bundle.bucket_table_hash),
         "bucket_table": built.bucket_table.clone(),
@@ -323,6 +360,7 @@ fn init(
         airdrop_id: hex::encode(built.airdrop_id),
         distributor: hex::encode(distributor),
         token_id: hex::encode(token_id),
+        token_source_account,
         merkle_root: hex::encode(built.bundle.merkle_root),
         bucket_table_hash: hex::encode(built.bundle.bucket_table_hash),
         bucket_table: built.bucket_table,
@@ -348,6 +386,8 @@ fn init(
             "airdrop": state.name,
             "airdrop_id": state.airdrop_id,
             "bundle": state.bundle_path,
+            "token_id": state.token_id,
+            "token_source_account": state.token_source_account,
             "recipient_count": built.bundle.encrypted_rows.len(),
             "tx_id": init_tx_id
         })
@@ -408,20 +448,8 @@ fn fund(airdrop: &str, amount: u64) -> CliResult<()> {
 }
 
 fn query_token_balance(rpc_url: &str, account: &str, token: &str) -> CliResult<()> {
-    match query_token_balance_inner(rpc_url, account) {
-        Ok(balance) => {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "status": "QUERY_BALANCE_OK",
-                    "account": account,
-                    "token": token,
-                    "asset": "native_lez",
-                    "balance": balance,
-                    "note": "balance reported is native LEZ via getAccountBalance; the --token argument is informational only and does not query the LEZ token program"
-                })
-            );
-        }
+    match query_token_balance_inner(rpc_url, account, token) {
+        Ok(response) => println!("{response}"),
         Err(err) => {
             println!(
                 "{}",
@@ -435,41 +463,21 @@ fn query_token_balance(rpc_url: &str, account: &str, token: &str) -> CliResult<(
     Ok(())
 }
 
-fn query_token_balance_inner(rpc_url: &str, account: &str) -> CliResult<u64> {
-    let account_id = bs58::encode(parse_id(account)?).into_string();
-    let request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getAccountBalance",
-        "params": [account_id]
+fn query_token_balance_inner(
+    rpc_url: &str,
+    account: &str,
+    token: &str,
+) -> CliResult<serde_json::Value> {
+    parse_id(account)?;
+    parse_id(token)?;
+    let payload = serde_json::json!({
+        "op": "query",
+        "wallet_path": default_wallet_path(),
+        "sequencer_url": rpc_url,
+        "account": account,
+        "token": token,
     });
-    let response = ureq::post(rpc_url)
-        .set("Content-Type", "application/json")
-        .send_string(&request.to_string())?
-        .into_string()?;
-    let parsed: serde_json::Value = serde_json::from_str(&response)?;
-    if let Some(error) = parsed.get("error") {
-        return Err(boxed_err(format!(
-            "E_QUERY_BALANCE_RPC_ERROR:{}",
-            rpc_error_message(error)
-        )));
-    }
-    parse_balance_value(&parsed).ok_or_else(|| boxed_err("E_QUERY_BALANCE_MISSING_BALANCE"))
-}
-
-fn parse_balance_value(parsed: &serde_json::Value) -> Option<u64> {
-    parsed
-        .get("result")
-        .or_else(|| parsed.get("balance"))
-        .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()))
-}
-
-fn rpc_error_message(error: &serde_json::Value) -> String {
-    error
-        .get("message")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown")
-        .to_owned()
+    run_local_token_script(&payload, "query")
 }
 
 fn prove(
@@ -861,7 +869,13 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
         if amount > state.total_funded.saturating_sub(state.total_claimed) {
             return Err(boxed_err("E_PROGRAM_7"));
         }
-        let tx_id = submit_claim_to_testnet(None, relayer, Path::new(serialized_lez_tx))?;
+        let token_settlement = token_settlement_for_claim(&state, &claim_tx.recipient, amount);
+        let tx_id = submit_claim_to_testnet(
+            None,
+            relayer,
+            Path::new(serialized_lez_tx),
+            token_settlement.as_ref(),
+        )?;
         state.total_claimed = state
             .total_claimed
             .checked_add(amount)
@@ -908,7 +922,13 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
         state.total_funded.saturating_sub(state.total_claimed),
     )
     .map_err(|err| boxed_err(format!("E_PROGRAM_{}", err.0)))?;
-    let tx_id = submit_claim_to_testnet(Some(&proof), relayer, Path::new(serialized_lez_tx))?;
+    let token_settlement = token_settlement_for_claim(&state, &claim_tx.recipient, amount);
+    let tx_id = submit_claim_to_testnet(
+        Some(&proof),
+        relayer,
+        Path::new(serialized_lez_tx),
+        token_settlement.as_ref(),
+    )?;
     state.total_claimed = state
         .total_claimed
         .checked_add(amount)
@@ -930,6 +950,22 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
         })
     );
     Ok(())
+}
+
+fn token_settlement_for_claim(
+    state: &LocalAirdropState,
+    recipient_account: &str,
+    amount: u64,
+) -> Option<TokenSettlementRequest> {
+    if state.token_source_account.trim().is_empty() || amount == 0 {
+        return None;
+    }
+    Some(TokenSettlementRequest {
+        token_id: state.token_id.clone(),
+        source_account: state.token_source_account.clone(),
+        recipient_account: recipient_account.to_owned(),
+        amount,
+    })
 }
 
 fn verify(airdrop: &str, proof: &str) -> CliResult<()> {
@@ -1415,16 +1451,30 @@ fn mint_token(name: &str, total_supply: u64, offline: bool) -> CliResult<()> {
     })?;
 
     let payload = serde_json::json!({
+        "op": "mint",
         "wallet_path": wallet_path,
         "sequencer_url": sequencer_url,
         "name": name,
         "total_supply": total_supply,
     });
 
-    let script = resolve_helper_script(
-        "DISTRIBUTIONX_LOCAL_TOKEN_MINT_SCRIPT",
-        "local-token-mint.sh",
-    )?;
+    let response = run_local_token_script(&payload, "mint")?;
+    println!("{response}");
+    Ok(())
+}
+
+fn run_local_token_script(
+    payload: &serde_json::Value,
+    label: &str,
+) -> CliResult<serde_json::Value> {
+    let script = if std::env::var("DISTRIBUTIONX_LOCAL_TOKEN_SCRIPT").is_ok() {
+        resolve_helper_script("DISTRIBUTIONX_LOCAL_TOKEN_SCRIPT", "local-token-mint.sh")?
+    } else {
+        resolve_helper_script(
+            "DISTRIBUTIONX_LOCAL_TOKEN_MINT_SCRIPT",
+            "local-token-mint.sh",
+        )?
+    };
     let mut child = ProcessCommand::new("bash")
         .arg(&script)
         .stdin(Stdio::piped())
@@ -1441,16 +1491,21 @@ fn mint_token(name: &str, total_supply: u64, offline: bool) -> CliResult<()> {
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(payload.to_string().as_bytes())
-            .map_err(|err| boxed_err(format!("write payload to local-token-mint.sh: {err}")))?;
+            .map_err(|err| {
+                boxed_err(format!(
+                    "write {label} payload to local-token-mint.sh: {err}"
+                ))
+            })?;
     }
 
     let output = child
         .wait_with_output()
-        .map_err(|err| boxed_err(format!("wait local-token-mint.sh: {err}")))?;
+        .map_err(|err| boxed_err(format!("wait local-token-mint.sh {label}: {err}")))?;
     if !output.status.success() {
         return Err(boxed_err(format!(
-            "E_DISTRIBUTIONX_TOKEN_MINT_FAILED: local-token-mint.sh exited {:?}",
-            output.status.code()
+            "E_DISTRIBUTIONX_TOKEN_HELPER_FAILED: local-token-mint.sh {label} exited {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout)
         )));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1458,9 +1513,8 @@ fn mint_token(name: &str, total_supply: u64, offline: bool) -> CliResult<()> {
         .lines()
         .rev()
         .find(|line| !line.trim().is_empty())
-        .ok_or_else(|| boxed_err("E_DISTRIBUTIONX_TOKEN_MINT_NO_OUTPUT".to_string()))?;
-    println!("{last_line}");
-    Ok(())
+        .ok_or_else(|| boxed_err("E_DISTRIBUTIONX_TOKEN_HELPER_NO_OUTPUT".to_string()))?;
+    Ok(serde_json::from_str(last_line)?)
 }
 
 fn resolve_helper_script(env_var: &str, name: &str) -> CliResult<PathBuf> {
@@ -2021,6 +2075,7 @@ fn submit_claim_to_testnet(
     proof: Option<&ProofFile>,
     relayer: &str,
     tx_path: &Path,
+    token_settlement: Option<&TokenSettlementRequest>,
 ) -> CliResult<String> {
     let command = std::env::var("DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND").ok();
     let serialized_lez_tx = match fs::read(tx_path) {
@@ -2042,12 +2097,17 @@ fn submit_claim_to_testnet(
             serialized_lez_tx,
             Some(relayer.to_owned()),
         );
-        serde_json::to_vec(&request)?
+        let mut value = serde_json::to_value(&request)?;
+        if let Some(settlement) = token_settlement {
+            value["token_settlement"] = serde_json::to_value(settlement)?;
+        }
+        serde_json::to_vec(&value)?
     } else {
         serde_json::to_vec(&serde_json::json!({
             "kind": "distributionx-claim",
             "relayer": relayer,
             "serialized_lez_tx": serialized_lez_tx,
+            "token_settlement": token_settlement,
         }))?
     };
     let Some(command) = command else {
@@ -2150,6 +2210,7 @@ impl AirdropRegistryEntry {
             airdrop_id: state.airdrop_id.clone(),
             distributor: state.distributor.clone(),
             token_id: state.token_id.clone(),
+            token_source_account: state.token_source_account.clone(),
             merkle_root: state.merkle_root.clone(),
             bucket_table_hash: state.bucket_table_hash.clone(),
             eligible_count: state.recipient_count,

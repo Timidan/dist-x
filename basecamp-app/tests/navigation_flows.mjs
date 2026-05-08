@@ -33,7 +33,7 @@ test("primary UI flows are reachable", async (app) => {
   await app.expectTexts(["DistributionX", "Create distribution"]);
 
   await app.click("Claim distribution");
-  await app.expectTexts(["Claim tokens", "Claim key", "Destination", "STATUS", "Claim now"]);
+  await app.expectTexts(["Claim tokens", "Claim key", "Destination", "Balance", "STATUS", "Claim now"]);
   await app.click("←");
   await app.expectTexts(["DistributionX", "Create distribution"]);
 

@@ -9,9 +9,9 @@ usage() {
 Usage: scripts/e2e.sh <mode>
 
 Modes:
-  localnet      Run the full CLI E2E against an already-running local LEZ RPC.
+  localnet      Run the full shielded CLI E2E against an already-running local LEZ RPC.
   private-localnet
-                Run localnet E2E with the shielded destination packet and private claim tx path.
+                Backward-compatible alias for localnet.
   ci-localnet   Start a configured standalone sequencer, then run localnet E2E.
   testnet       Run the full CLI E2E against the configured LEZ RPC and submit adapters.
   basecamp      Package/install LGX assets and launch Basecamp with .env.local.
@@ -32,7 +32,6 @@ if [[ -z "${mode}" || "${mode}" == "-h" || "${mode}" == "--help" ]]; then
   exit 0
 fi
 shift
-PRIVATE_CLAIM="${DISTRIBUTIONX_USE_PRIVATE_CLAIM:-0}"
 
 load_env_file() {
   local env_file="${DISTRIBUTIONX_ENV_FILE:-${ROOT}/.env.local}"
@@ -55,6 +54,13 @@ is_local_rpc() {
   [[ "${value}" == http://127.0.0.1* ||
      "${value}" == http://localhost* ||
      "${value}" == http://[[]::1[]]* ]]
+}
+
+default_local_submit_hooks() {
+  export DISTRIBUTIONX_INIT_SUBMIT_COMMAND="${DISTRIBUTIONX_INIT_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh init}"
+  export DISTRIBUTIONX_FUND_SUBMIT_COMMAND="${DISTRIBUTIONX_FUND_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh fund}"
+  export DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND="${DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh claim}"
+  export DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND="${DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh close}"
 }
 
 write_ci_summary() {
@@ -129,20 +135,19 @@ setup_ci_localnet() {
     fi
   fi
 
+  export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-${LEZ_RPC_URL:-http://127.0.0.1:3040}}"
+  if ! is_local_rpc "${LEZ_RPC_URL}"; then
+    skip_or_fail_ci_localnet "LEZ_RPC_URL must point at a local sequencer for this job, got ${LEZ_RPC_URL}"
+  fi
+  default_local_submit_hooks
+
   [[ -n "${DISTRIBUTIONX_INIT_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_INIT_SUBMIT_COMMAND is required — all transactions must touch the chain"
   [[ -n "${DISTRIBUTIONX_FUND_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_FUND_SUBMIT_COMMAND is required — all transactions must touch the chain"
   [[ -n "${DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND is required — all transactions must touch the chain"
   [[ -n "${DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND is required — close must touch the chain"
 
-  export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-${LEZ_RPC_URL:-http://127.0.0.1:3040}}"
-  if ! is_local_rpc "${LEZ_RPC_URL}"; then
-    skip_or_fail_ci_localnet "LEZ_RPC_URL must point at a local sequencer for this job, got ${LEZ_RPC_URL}"
-  fi
-
   [[ -n "${LEZ_DEPLOYER_WALLET:-}" ]] || skip_or_fail_ci_localnet "LEZ_DEPLOYER_WALLET must be a funded local wallet account"
 
-  export DISTRIBUTIONX_TOKEN_ID="${DISTRIBUTIONX_TOKEN_ID:-Public/localnet-token}"
-  export DISTRIBUTIONX_RECOVERY_ADDRESS="${DISTRIBUTIONX_RECOVERY_ADDRESS:-Public/localnet-recovery}"
   export DISTRIBUTIONX_RELAYER_URL="${DISTRIBUTIONX_RELAYER_URL:-localnet}"
   export DISTRIBUTIONX_STATE_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-localnet}"
   export DISTRIBUTIONX_SERIALIZED_LEZ_TX="${DISTRIBUTIONX_SERIALIZED_LEZ_TX:-${DISTRIBUTIONX_STATE_DIR}/claim.tx}"
@@ -192,11 +197,11 @@ setup_ci_localnet() {
 case "${mode}" in
   localnet)
     load_env_file
-    PRIVATE_CLAIM="${DISTRIBUTIONX_USE_PRIVATE_CLAIM:-${PRIVATE_CLAIM}}"
     export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-${LEZ_RPC_URL:-http://127.0.0.1:3040}}"
     export DISTRIBUTIONX_RELAYER_URL="${DISTRIBUTIONX_RELAYER_URL:-localnet}"
     export DISTRIBUTIONX_ENV_FILE=/dev/null
     export RISC0_DEV_MODE=0
+    default_local_submit_hooks
     if ! is_local_rpc "${LEZ_RPC_URL}"; then
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_REQUIRED: ${LEZ_RPC_URL}" >&2
       exit 2
@@ -210,12 +215,11 @@ case "${mode}" in
     ;;
   private-localnet)
     load_env_file
-    export DISTRIBUTIONX_USE_PRIVATE_CLAIM=1
-    PRIVATE_CLAIM=1
     export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-${LEZ_RPC_URL:-http://127.0.0.1:3040}}"
     export DISTRIBUTIONX_RELAYER_URL="${DISTRIBUTIONX_RELAYER_URL:-localnet}"
     export DISTRIBUTIONX_ENV_FILE=/dev/null
     export RISC0_DEV_MODE=0
+    default_local_submit_hooks
     mode=localnet
     if ! is_local_rpc "${LEZ_RPC_URL}"; then
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_REQUIRED: ${LEZ_RPC_URL}" >&2
@@ -264,7 +268,6 @@ elif [[ -n "${DISTRIBUTIONX_ENV_FILE:-}" ]]; then
   echo "E_DISTRIBUTIONX_ENV_FILE_NOT_FOUND: ${ENV_FILE}" >&2
   exit 2
 fi
-PRIVATE_CLAIM="${DISTRIBUTIONX_USE_PRIVATE_CLAIM:-${PRIVATE_CLAIM}}"
 
 LOG_DIR="${ROOT}/docs/run-logs/e2e"
 STATE_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-testnet}"
@@ -272,6 +275,7 @@ mkdir -p "${LOG_DIR}"
 rm -f "${LOG_DIR}"/*.log "${LOG_DIR}"/*.json
 rm -rf "${STATE_DIR}"
 export DISTRIBUTIONX_STATE_DIR="${STATE_DIR}"
+export DISTRIBUTIONX_REPO_ROOT="${ROOT}"
 export DISTRIBUTIONX_AIRDROP_NAME="${DISTRIBUTIONX_AIRDROP_NAME:-demo-airdrop}"
 export DISTRIBUTIONX_FUND_AMOUNT="${DISTRIBUTIONX_FUND_AMOUNT:-3000}"
 export DISTRIBUTIONX_EXPIRY_UNIX="${DISTRIBUTIONX_EXPIRY_UNIX:-1893456000}"
@@ -414,11 +418,7 @@ json_string_field() {
 }
 
 claim_destination_args() {
-  if [[ -n "${DISTRIBUTIONX_CLAIM_DESTINATION_COMMITMENT:-}" ]]; then
-    printf '%s\n' --claim-destination-commitment "${DISTRIBUTIONX_CLAIM_DESTINATION_COMMITMENT}"
-  else
-    printf '%s\n' --destination-packet "${STATE_DIR}/shielded_destination.json"
-  fi
+  printf '%s\n' --destination-packet "${STATE_DIR}/shielded_destination.json"
 }
 
 echo "DistributionX E2E"
@@ -441,9 +441,13 @@ else
 fi
 assert_marker sample "SAMPLE_FIXTURE_OK"
 
-if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" ]]; then
-  DISTRIBUTIONX_TOKEN_ID="$(cli token-id --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" | json_string_field token_id)"
+if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ]]; then
+  MINT_OUTPUT="$(cli mint-token --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" --total-supply "${DISTRIBUTIONX_FUND_AMOUNT}")"
+  printf '%s\n' "${MINT_OUTPUT}" > "${LOG_DIR}/mint-token.log"
+  DISTRIBUTIONX_TOKEN_ID="$(printf '%s\n' "${MINT_OUTPUT}" | json_string_field token_id)"
+  DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT="$(printf '%s\n' "${MINT_OUTPUT}" | json_string_field supply_account_id)"
   export DISTRIBUTIONX_TOKEN_ID
+  export DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT
 fi
 
 if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
@@ -451,16 +455,9 @@ if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
   export DISTRIBUTIONX_RECOVERY_ADDRESS
 fi
 
-if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
+if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" || -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
   echo "E_DISTRIBUTIONX_SAMPLE_DERIVATION_FAILED" >&2
   exit 2
-fi
-
-if [[ "${mode}" == "localnet" && "${PRIVATE_CLAIM}" != "1" && -z "${DISTRIBUTIONX_CLAIM_DESTINATION_COMMITMENT:-}" ]]; then
-  # Public LEZ claims can only credit an already-initialized public account.
-  # The generated shielded fixture is for private claims; use the funded
-  # distributor account as the localnet public recipient unless overridden.
-  export DISTRIBUTIONX_CLAIM_DESTINATION_COMMITMENT="${LEZ_DEPLOYER_WALLET}"
 fi
 
 run_step deploy scripts/deploy.sh "--${mode}"
@@ -470,6 +467,7 @@ run_step init cli init \
   --csv "${STATE_DIR}/eligible.csv" \
   --distributor "${LEZ_DEPLOYER_WALLET}" \
   --token "${DISTRIBUTIONX_TOKEN_ID}" \
+  --token-source-account "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT}" \
   --rpc "${LEZ_RPC_URL}" \
   --expiry "${DISTRIBUTIONX_EXPIRY_UNIX}" \
   --recovery "${DISTRIBUTIONX_RECOVERY_ADDRESS}"
@@ -489,11 +487,9 @@ assert_marker prove "PROVE_LOCAL_OK"
 assert_marker prove "claim_destination_commitment"
 assert_marker prove '"risc0_real_proof":"OK"'
 
-if [[ "${PRIVATE_CLAIM}" == "1" ]]; then
-  if ! jq -e '.private_claim != null and .recipient_npk != null and .recipient_vpk != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
-    echo "private-localnet did not produce a private claim transaction" >&2
-    exit 1
-  fi
+if ! jq -e '.private_claim != null and .recipient_npk != null and .recipient_vpk != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
+  echo "claim did not produce a shielded private transaction" >&2
+  exit 1
 fi
 
 if grep -q "claim_address" "${STATE_DIR}/proof.json"; then

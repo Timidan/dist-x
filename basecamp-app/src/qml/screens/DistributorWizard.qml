@@ -38,21 +38,20 @@ Item {
     function hasSufficientDistributorBalance() {
         var amount = Number(appRoot.fundAmount)
         if (!appRoot || isNaN(amount) || amount <= 0) return false
-        if (appRoot.isLocalRpc()) return true
         if (appRoot.distributorTokenBalance === "" || appRoot.distributorTokenBalanceError !== "") return false
         var balance = Number(appRoot.distributorTokenBalance)
         return !isNaN(balance) && !isNaN(amount) && amount > 0 && balance >= amount
     }
 
     function distributorBalanceText() {
-        if (!appRoot) return "Your balance: loading..."
-        if (appRoot.distributorTokenBalanceError !== "") return "Your balance: Error: " + appRoot.distributorTokenBalanceError
-        if (appRoot.distributorTokenBalance === "") return "Your balance: loading..."
-        if (appRoot.isLocalRpc()) return "Signer balance: " + appRoot.distributorTokenBalance + " native LEZ · vault funding is checked on submit"
+        if (!appRoot) return "Token source balance: loading..."
+        if (appRoot.activeTokenSourceAccount() === "") return "Token source balance: mint a token first"
+        if (appRoot.distributorTokenBalanceError !== "") return "Token source balance: Error: " + appRoot.distributorTokenBalanceError
+        if (appRoot.distributorTokenBalance === "") return "Token source balance: loading..."
         if (appRoot.fundAmount !== "" && !hasSufficientDistributorBalance()) {
-            return "Your balance: " + appRoot.distributorTokenBalance + " tokens - need " + appRoot.fundAmount
+            return "Token source balance: " + appRoot.distributorTokenBalance + " tokens - need " + appRoot.fundAmount
         }
-        return "Your balance: " + appRoot.distributorTokenBalance + " tokens"
+        return "Token source balance: " + appRoot.distributorTokenBalance + " tokens"
     }
 
     function setupBlockingMessage() {
@@ -63,6 +62,7 @@ Item {
         if (appRoot.airdropName === "") return "Distribution name is required before Initialize."
         if (appRoot.distributorAccount === "") return "Signer account is required before Initialize."
         if (appRoot.tokenId === "") return "Token id is required before Initialize."
+        if (appRoot.tokenSourceAccount === "") return "Token source account is required before Initialize."
         if (appRoot.testnetRpc === "") return "RPC URL is required before Initialize."
         if (appRoot.recoveryAddress === "") return "Recovery account is required before Initialize."
         return ""
@@ -170,7 +170,7 @@ Item {
                     text: page.step === 1
                         ? "Paste the funded LEZ account that will sign deploy and fund transactions. Claim keys are created or loaded from the claim screen."
                         : page.step === 2
-                        ? "Point DistributionX at the recipient CSV and token id. The commitment and encrypted bundle are built locally."
+                        ? "Point DistributionX at the recipient CSV and token account. The commitment and encrypted bundle are built locally."
                         : page.step === 3
                         ? "Submit the funding transaction from the distributor account. The vault opens once it is confirmed."
                         : "Disclosure published. Share the claim link with eligible recipients."
@@ -350,12 +350,20 @@ Item {
                     }
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
-                        text: "Test token"
-                        busy: appRoot && appRoot.isOperation("creating token id")
-                        busyText: "Creating"
+                        text: "Mint token"
+                        busy: appRoot && appRoot.isOperation("minting token")
+                        busyText: "Minting"
                         enabled: appRoot && !appRoot.actionRunning
-                        onClicked: Qt.callLater(function() { if (appRoot) appRoot.generateTestTokenId() })
+                        onClicked: Qt.callLater(function() { if (appRoot) appRoot.mintDistributionToken() })
                     }
+                }
+                Field {
+                    theme: page.appRoot ? page.appRoot.theme : null
+                    width: parent.width
+                    label: "Token source account"
+                    placeholder: "Public/..."
+                    text: appRoot ? appRoot.tokenSourceAccount : ""
+                    onTextChanged: if (appRoot) appRoot.tokenSourceAccount = text
                 }
                 Field {
                     theme: page.appRoot ? page.appRoot.theme : null
@@ -403,6 +411,7 @@ Item {
                             && appRoot.airdropName !== ""
                             && appRoot.distributorAccount !== ""
                             && appRoot.tokenId !== ""
+                            && appRoot.tokenSourceAccount !== ""
                             && appRoot.testnetRpc !== ""
                             && appRoot.recoveryAddress !== ""
                         onClicked: Qt.callLater(function() {
@@ -417,6 +426,7 @@ Item {
                     visible: appRoot && (appRoot.csvValidationRunning
                         || appRoot.isOperation("preparing sample csv")
                         || appRoot.isOperation("creating token id")
+                        || appRoot.isOperation("minting token")
                         || appRoot.isOperation("initializing the distribution"))
                     indeterminate: true
                 }
@@ -470,7 +480,7 @@ Item {
                         ? appRoot.distributorError
                         : page.setupBlockingMessage() !== ""
                         ? page.setupBlockingMessage()
-                        : appRoot && (appRoot.distributorStatus === "Sample CSV ready" || appRoot.distributorStatus === "Token id ready" || appRoot.distributorStatus === "Distribution initialized")
+                        : appRoot && (appRoot.distributorStatus === "Sample CSV ready" || appRoot.distributorStatus === "Token id ready" || appRoot.distributorStatus === "Token minted" || appRoot.distributorStatus === "Distribution initialized")
                         ? appRoot.distributorStatus
                         : ""
                 }
@@ -522,7 +532,7 @@ Item {
                 Text {
                     width: parent.width
                     text: page.distributorBalanceText()
-                    color: appRoot && !appRoot.isLocalRpc() && (appRoot.distributorTokenBalanceError !== "" || (appRoot.distributorTokenBalance !== "" && appRoot.fundAmount !== "" && !page.hasSufficientDistributorBalance())) ? appRoot.theme.danger : (appRoot ? appRoot.theme.fg2 : "#475569")
+                    color: appRoot && (appRoot.distributorTokenBalanceError !== "" || appRoot.activeTokenSourceAccount() === "" || (appRoot.distributorTokenBalance !== "" && appRoot.fundAmount !== "" && !page.hasSufficientDistributorBalance())) ? appRoot.theme.danger : (appRoot ? appRoot.theme.fg2 : "#475569")
                     font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap

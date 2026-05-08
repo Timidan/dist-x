@@ -21,13 +21,13 @@ The CU table below is regenerated in place by `scripts/extract-cu.sh` from `targ
 { "tx_id": "<hex>", "status": "OK|ERROR", "cu": <integer> }
 ```
 
-The private claim row reports the outer privacy circuit cycle count. The same receipt also records `private_program_cu = 5174193`, the inner private DistributionX program proof cycle count. Keep the raw receipt JSON files with the final submission so the CU field path is auditable.
+The claim row reports the LEZ public-execution cycle count for the `claim_private` instruction. Keep the raw receipt JSON files with the final submission so the CU field path is auditable.
 
 <!-- BEGIN cu-table -->
 | Operation | Tx id | Receipt file | Status | CU |
 |---|---|---|---|---:|
 | `init_airdrop` on standalone LEZ | 9bb3264494e75daf6f6d5fd1b3c476d683d217ffada18088b166c5c9d2138d13 | `target/distributionx-testnet/receipts/init_airdrop.json` | OK | 444366 |
 | `fund` on standalone LEZ | bc6bc61e430aa90c8ec683f5f154ddc72db005d2b3590945955e2b73787c956a | `target/distributionx-testnet/receipts/fund.json` | OK | 448211 |
-| `claim` on standalone LEZ | 286b12208328c8d7e48b868e83cc3e1745a09622d392445679dade3a8e137a76 | `target/distributionx-testnet/receipts/claim.json` | OK | 786876 |
+| `claim_private` on standalone LEZ | 286b12208328c8d7e48b868e83cc3e1745a09622d392445679dade3a8e137a76 | `target/distributionx-testnet/receipts/claim.json` | OK | 786876 |
 | `close` on standalone LEZ | fc51f3135f02d77027fe2d36beb65486ff0e562397c773fc99669dcbf0240ceb | `target/distributionx-testnet/receipts/close.json` | OK | 505564 |
 <!-- END cu-table -->

@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${DISTRIBUTIONX_ENV_FILE:-${ROOT}/.env.local}"
 USER_DIR="${DISTRIBUTIONX_BASECAMP_USER_DIR:-${ROOT}/target/basecamp-user}"
+TMPDIR="${DISTRIBUTIONX_TMPDIR:-${ROOT}/target/tmp}"
+export TMPDIR
 PACKAGE=1
 INSTALL=1
 NO_LAUNCH=0
@@ -103,6 +105,7 @@ default_local_submit_hooks() {
   export DISTRIBUTIONX_INIT_SUBMIT_COMMAND="${DISTRIBUTIONX_INIT_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh init}"
   export DISTRIBUTIONX_FUND_SUBMIT_COMMAND="${DISTRIBUTIONX_FUND_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh fund}"
   export DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND="${DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh claim}"
+  export DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND="${DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND:-bash ${ROOT}/scripts/local-submit.sh close}"
 }
 
 bootstrap_local_signer() {
@@ -190,6 +193,7 @@ fi
 
 export RISC0_DEV_MODE=0
 export QML_DISABLE_DISK_CACHE=1
+export DISTRIBUTIONX_REPO_ROOT="${ROOT}"
 log "RISC0_DEV_MODE=${RISC0_DEV_MODE}"
 
 export DISTRIBUTIONX_STATE_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-testnet}"
@@ -243,6 +247,7 @@ if [[ "${CLEAN_USER_DIR}" -eq 1 ]]; then
   rm -rf "${USER_DIR}"
 fi
 mkdir -p "${USER_DIR}/modules" "${USER_DIR}/plugins"
+mkdir -p "${TMPDIR}"
 
 if [[ "${INSTALL}" -eq 1 ]]; then
   log "Installing LGX packages into ${USER_DIR}"
@@ -273,6 +278,9 @@ if [[ -n "${DISTRIBUTIONX_STATE_DIR:-}" ]]; then
 fi
 if [[ -n "${DISTRIBUTIONX_TOKEN_ID:-}" ]]; then
   APP_ARGS+=("distributionx-token=${DISTRIBUTIONX_TOKEN_ID}")
+fi
+if [[ -n "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ]]; then
+  APP_ARGS+=("distributionx-token-source=${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT}")
 fi
 if [[ -n "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
   APP_ARGS+=("distributionx-recovery=${DISTRIBUTIONX_RECOVERY_ADDRESS}")

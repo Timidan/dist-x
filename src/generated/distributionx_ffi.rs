@@ -339,7 +339,6 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
     let receipt_bytes = v["receipt_bytes"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u8)).collect::<Result<Vec<_>, String>>()?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
-    let recipient = parse_account_id(v["recipient"].as_str().ok_or("missing recipient")?)?;
     let airdrop = compute_pda_with_program(&program_id, &[
         b"airdrop",
         airdrop_id.as_ref(),
@@ -358,7 +357,6 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
         airdrop,
         nullifier_record,
         vault,
-        recipient,
     ];
     let signer_ids: Vec<AccountId> = vec![
     ];
@@ -418,7 +416,6 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
     let merkle_path_is_right = v["merkle_path_is_right"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_bool().ok_or("expected bool")?)).collect::<Result<Vec<_>, String>>()?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
-    let recipient = parse_account_id(v["recipient"].as_str().ok_or("missing recipient")?)?;
     let airdrop = compute_pda_with_program(&program_id, &[
         b"airdrop",
         airdrop_id.as_ref(),
@@ -437,7 +434,6 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
         airdrop,
         nullifier_record,
         vault,
-        recipient,
     ];
     let signer_ids: Vec<AccountId> = vec![
     ];

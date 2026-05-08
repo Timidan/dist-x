@@ -43,7 +43,7 @@ Standalone LEZ shielded/private real-proof run:
 | Proof mode | `risc0-zkvm-receipt`, `RISC0_DEV_MODE=0` |
 | Flow | deploy, init, fund, prove, verify, private claim, duplicate rejection, close |
 
-CU values are in [docs/bench/REPORT.md](docs/bench/REPORT.md): init `444366`, fund `448211`, private claim `786876`, close `505564`.
+CU values are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md).
 
 ## Reviewer Entry Points
 
@@ -115,7 +115,6 @@ export DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND='bash scripts/local-submit.sh claim'
 export DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND='bash scripts/local-submit.sh close'
 export DISTRIBUTIONX_RELAYER_URL=localnet
 export DISTRIBUTIONX_SERIALIZED_LEZ_TX=target/distributionx-testnet/claim.tx
-export DISTRIBUTIONX_USE_PRIVATE_CLAIM=1
 ```
 
 Run CLI/localnet preflight:
@@ -177,9 +176,11 @@ export DISTRIBUTIONX_EXPIRY_UNIX="${DISTRIBUTIONX_EXPIRY_UNIX:-1893456000}"
 
 cargo build --release -p distributionx-cli
 bash scripts/install-reviewer-fixture.sh
-export DISTRIBUTIONX_TOKEN_ID="$("$DISTRIBUTIONX_CLI" token-id --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" | jq -r .token_id)"
+TOKEN_JSON="$("$DISTRIBUTIONX_CLI" mint-token --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" --total-supply "$DISTRIBUTIONX_FUND_AMOUNT")"
+export DISTRIBUTIONX_TOKEN_ID="$(printf '%s\n' "$TOKEN_JSON" | jq -r .token_id)"
+export DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT="$(printf '%s\n' "$TOKEN_JSON" | jq -r .supply_account_id)"
 bash scripts/deploy.sh --localnet
-"$DISTRIBUTIONX_CLI" init --name "$DISTRIBUTIONX_AIRDROP_NAME" --csv "$DISTRIBUTIONX_STATE_DIR/eligible.csv" --distributor "$LEZ_DEPLOYER_WALLET" --token "$DISTRIBUTIONX_TOKEN_ID" --rpc "$LEZ_RPC_URL" --expiry "$DISTRIBUTIONX_EXPIRY_UNIX" --recovery "$DISTRIBUTIONX_RECOVERY_ADDRESS"
+"$DISTRIBUTIONX_CLI" init --csv "$DISTRIBUTIONX_STATE_DIR/eligible.csv" --distributor "$LEZ_DEPLOYER_WALLET" --token "$DISTRIBUTIONX_TOKEN_ID" --token-source-account "$DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT" --rpc "$LEZ_RPC_URL" --expiry "$DISTRIBUTIONX_EXPIRY_UNIX" --recovery "$DISTRIBUTIONX_RECOVERY_ADDRESS"
 "$DISTRIBUTIONX_CLI" fund --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --amount "$DISTRIBUTIONX_FUND_AMOUNT"
 RISC0_DEV_MODE=0 "$DISTRIBUTIONX_CLI" prove --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --bundle "$DISTRIBUTIONX_STATE_DIR/bundle.json" --wallet "$DISTRIBUTIONX_STATE_DIR/wallet.seed" --destination-packet "$DISTRIBUTIONX_STATE_DIR/shielded_destination.json"
 "$DISTRIBUTIONX_CLI" verify --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --proof "$DISTRIBUTIONX_STATE_DIR/proof.json"

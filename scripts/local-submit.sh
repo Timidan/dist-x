@@ -79,14 +79,19 @@ export DISTRIBUTIONX_REPO_ROOT="${ROOT}"
 export DISTRIBUTIONX_LEZ_REPO="${LEZ_REPO}"
 export LOGOS_BLOCKCHAIN_CIRCUITS="${LOGOS_BLOCKCHAIN_CIRCUITS:-${ROOT}/vendor/logos-blockchain-circuits}"
 
-ADAPTER_DIR="${TMPDIR:-/tmp}/distributionx-local-submit-adapter-${UID:-$(id -u)}"
-mkdir -p "${ADAPTER_DIR}/src"
+ADAPTER_ROOT="${DISTRIBUTIONX_ADAPTER_CACHE_DIR:-${ROOT}/target/distributionx-adapters}"
+ADAPTER_DIR="${ADAPTER_ROOT}/local-submit-${UID:-$(id -u)}"
+mkdir -p "${ADAPTER_DIR}/src" "${ADAPTER_ROOT}/tmp"
+export TMPDIR="${ADAPTER_ROOT}/tmp"
+export DISTRIBUTIONX_LEZ_CU_LOG="${DISTRIBUTIONX_LEZ_CU_LOG:-/tmp/distributionx-standalone-sequencer-${UID:-$(id -u)}.log}"
 
 cat > "${ADAPTER_DIR}/Cargo.toml" <<EOF
 [package]
 name = "distributionx-local-submit-adapter"
 version = "0.1.0"
 edition = "2021"
+
+[workspace]
 
 [dependencies]
 common = { path = "${LEZ_REPO}/common" }
@@ -112,10 +117,8 @@ perl -0pe '
 ' "${ROOT}/src/generated/distributionx_ffi.rs" > "${ADAPTER_DIR}/src/generated_distributionx_ffi.rs"
 
 cat > "${ADAPTER_DIR}/src/main.rs" <<'EOF'
-use common::HashType;
+use common::{HashType, transaction::NSSATransaction};
 use nssa::{AccountId, ProgramId};
-use nssa::privacy_preserving_transaction::circuit::ProgramWithDependencies;
-use nssa::program::Program;
 use nssa_core::{NullifierPublicKey, program::PdaSeed};
 use nssa_core::encryption::shared_key_derivation::Secp256k1Point;
 use serde_json::{json, Value};
@@ -127,10 +130,12 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use url::Url;
 use wallet::{
+    AccDecodeData,
     config::WalletConfigOverrides,
     helperfunctions::{fetch_config_path, fetch_persistent_storage_path},
     program_facades::native_token_transfer::NativeTokenTransfer,
-    PrivacyPreservingAccount, WalletCore,
+    program_facades::token::Token,
+    WalletCore,
 };
 
 fn open_wallet(args: &Value) -> Result<WalletCore, String> {
@@ -158,53 +163,26 @@ fn open_wallet(args: &Value) -> Result<WalletCore, String> {
         .map_err(|e| format!("wallet init: {e}"))
 }
 
+fn claim_has_private_payload(args: &Value) -> bool {
+    args.get("private_claim").is_some()
+        && args.get("recipient_npk").is_some()
+        && args.get("recipient_vpk").is_some()
+}
+
+fn should_use_private_claim(op: &str, args: &Value) -> Result<bool, String> {
+    if op != "claim" {
+        return Ok(false);
+    }
+    if claim_has_private_payload(args) {
+        return Ok(true);
+    }
+    Err("E_DISTRIBUTIONX_PRIVATE_CLAIM_REQUIRED".to_owned())
+}
+
 mod generated {
     #![allow(dead_code, unused_imports, unused_mut)]
 
     include!("generated_distributionx_ffi.rs");
-}
-
-#[allow(dead_code)]
-#[derive(serde::Serialize)]
-enum DistributionxPrivateInstruction {
-    InitAirdrop {
-        airdrop_id: [u8; 32],
-        token_id: [u8; 32],
-        merkle_root: [u8; 32],
-        tree_depth: u8,
-        bucket_table_hash: [u8; 32],
-        bucket_table: Vec<u64>,
-        image_id: [u8; 32],
-        expiry_unix: i64,
-        recovery_address: [u8; 32],
-        now_unix: i64,
-    },
-    Fund {
-        airdrop_id: [u8; 32],
-        amount: u64,
-        now_unix: i64,
-    },
-    Claim {
-        airdrop_id: [u8; 32],
-        nullifier: [u8; 32],
-        receipt_bytes: Vec<u8>,
-        now_unix: i64,
-    },
-    ClaimPrivate {
-        airdrop_id: [u8; 32],
-        bucket_id: u8,
-        nullifier: [u8; 32],
-        claim_destination_commitment: [u8; 32],
-        claimant_address: [u8; 32],
-        salt: [u8; 32],
-        claim_sig: Vec<u8>,
-        merkle_siblings: Vec<[u8; 32]>,
-        merkle_path_is_right: Vec<bool>,
-        now_unix: i64,
-    },
-    Close {
-        airdrop_id: [u8; 32],
-    },
 }
 
 fn main() {
@@ -231,12 +209,9 @@ fn run() -> Result<(), String> {
     if op == "fund" {
         prefund_vault(&args)?;
     }
-    let use_private_claim = std::env::var("DISTRIBUTIONX_USE_PRIVATE_CLAIM")
-        .ok()
-        .as_deref()
-        == Some("1");
-    let response = if op == "claim" && use_private_claim && args.get("recipient_npk").is_some() {
-        submit_private_claim(&args)?
+    let use_private_claim = should_use_private_claim(&op, &args)?;
+    let response = if use_private_claim {
+        call_generated("claim_private", &args)?
     } else {
         call_generated(&op, &args)?
     };
@@ -246,11 +221,26 @@ fn run() -> Result<(), String> {
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| format!("generated response missing tx_hash: {response}"))?;
     if let Err(err) = wait_for_transaction(tx_hash) {
-        write_receipt(&op, tx_hash, "SUBMITTED_NOT_CONFIRMED", None, Some(&err))?;
+        write_receipt(&op, tx_hash, "SUBMITTED_NOT_CONFIRMED", None, Some(&err), None)?;
         return Err(err);
     }
-    write_receipt(&op, tx_hash, "OK", None, None)?;
-    println!("{}", json!({ "tx_id": tx_hash }));
+    let token_tx_hash = if op == "claim" {
+        settle_claim_tokens(&args)?
+    } else {
+        None
+    };
+    if let Some(token_tx) = token_tx_hash.as_deref() {
+        if let Err(err) = wait_for_transaction(token_tx) {
+            write_receipt(&op, tx_hash, "TOKEN_SUBMITTED_NOT_CONFIRMED", None, Some(&err), Some(token_tx))?;
+            return Err(err);
+        }
+    }
+    write_receipt(&op, tx_hash, "OK", None, None, token_tx_hash.as_deref())?;
+    println!("{}", json!({
+        "tx_id": tx_hash,
+        "token_tx_id": token_tx_hash,
+        "submit_mode": if use_private_claim { "claim_private" } else { op.as_str() }
+    }));
     Ok(())
 }
 
@@ -260,6 +250,7 @@ fn write_receipt(
     status: &str,
     cu: Option<u64>,
     note: Option<&str>,
+    token_tx_hash: Option<&str>,
 ) -> Result<(), String> {
     let receipts_dir = std::env::var("DISTRIBUTIONX_RECEIPTS_DIR")
         .map(PathBuf::from)
@@ -272,6 +263,7 @@ fn write_receipt(
         "tx_id": tx_hash,
         "status": status,
         "cu": cu,
+        "token_tx_id": token_tx_hash,
         "captured_from": "scripts/local-submit.sh",
         "note": note,
     });
@@ -320,6 +312,120 @@ fn prefund_vault(args: &Value) -> Result<(), String> {
     })
 }
 
+fn settle_claim_tokens(args: &Value) -> Result<Option<String>, String> {
+    let Some(settlement) = args.get("token_settlement") else {
+        return Ok(None);
+    };
+    if settlement.is_null() {
+        return Ok(None);
+    }
+    let source = parse_account_id(required_str(settlement, "source_account")?)?;
+    let recipient = parse_account_id(required_str(settlement, "recipient_account")?)?;
+    let amount = settlement
+        .get("amount")
+        .and_then(Value::as_u64)
+        .ok_or("missing token_settlement.amount")?;
+    if amount == 0 {
+        return Ok(None);
+    }
+
+    let mut wallet = open_wallet(args)?;
+    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("tokio runtime: {e}"))?;
+    rt.block_on(async {
+        let tx_hash = if let (Some(npk), Some(vpk)) = (
+            args.get("recipient_npk").and_then(Value::as_str),
+            args.get("recipient_vpk").and_then(Value::as_str),
+        ) {
+            let recipient_npk = NullifierPublicKey(parse_hex_32(npk)?);
+            let recipient_vpk = Secp256k1Point(hex::decode(vpk)
+                .map_err(|e| format!("recipient_vpk hex: {e}"))?);
+            let (tx_hash, secret_recipient) = Token(&wallet)
+                .send_transfer_transaction_shielded_foreign_account(
+                    source,
+                    recipient_npk,
+                    recipient_vpk,
+                    u128::from(amount),
+                )
+                .await
+                .map_err(|e| format!("shielded token claim transfer: {e:?}"))?;
+            let transfer_tx = wallet
+                .poll_native_token_transfer(tx_hash)
+                .await
+                .map_err(|e| format!("shielded token claim transfer inclusion: {e}"))?;
+            if let NSSATransaction::PrivacyPreserving(tx) = transfer_tx {
+                wallet
+                    .decode_insert_privacy_preserving_transaction_results(
+                        &tx,
+                        &[AccDecodeData::Decode(secret_recipient, recipient)],
+                    )
+                    .map_err(|e| format!("decode shielded token account: {e}"))?;
+            }
+            record_shielded_token_settlement(settlement, &tx_hash.to_string(), amount)?;
+            tx_hash
+        } else {
+            Token(&wallet)
+                .send_transfer_transaction(source, recipient, u128::from(amount))
+                .await
+                .map_err(|e| format!("token claim transfer: {e:?}"))?
+        };
+        wallet
+            .store_persistent_data()
+            .await
+            .map_err(|e| format!("wallet store after token transfer: {e}"))?;
+        Ok::<_, String>(Some(tx_hash.to_string()))
+    })
+}
+
+fn record_shielded_token_settlement(
+    settlement: &Value,
+    tx_hash: &str,
+    amount: u64,
+) -> Result<(), String> {
+    let recipient = required_str(settlement, "recipient_account")?;
+    let token = required_str(settlement, "token_id")?;
+    let path = state_dir().join("shielded_token_balances.json");
+    let mut document = if path.exists() {
+        serde_json::from_slice::<Value>(
+            &std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?,
+        )
+        .map_err(|e| format!("parse {}: {e}", path.display()))?
+    } else {
+        json!({ "balances": [] })
+    };
+    if !document.get("balances").is_some_and(Value::is_array) {
+        document["balances"] = json!([]);
+    }
+    let balances = document["balances"]
+        .as_array_mut()
+        .ok_or("shielded balance ledger is not an array")?;
+    if let Some(entry) = balances.iter_mut().find(|entry| {
+        entry.get("account").and_then(Value::as_str) == Some(recipient)
+            && entry.get("token").and_then(Value::as_str) == Some(token)
+    }) {
+        let current = entry
+            .get("balance")
+            .and_then(Value::as_str)
+            .and_then(|raw| raw.parse::<u128>().ok())
+            .unwrap_or(0);
+        entry["balance"] = json!((current + u128::from(amount)).to_string());
+        entry["last_tx_id"] = json!(tx_hash);
+        entry["updated_at_unix"] = json!(now_unix());
+    } else {
+        balances.push(json!({
+            "account": recipient,
+            "token": token,
+            "balance": amount.to_string(),
+            "last_tx_id": tx_hash,
+            "updated_at_unix": now_unix(),
+        }));
+    }
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&document).map_err(|e| format!("settlement ledger JSON: {e}"))?,
+    )
+    .map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 fn wait_for_transaction(tx_hash: &str) -> Result<(), String> {
     let hash: HashType = tx_hash
         .parse()
@@ -344,6 +450,9 @@ fn wait_for_transaction(tx_hash: &str) -> Result<(), String> {
                 Ok(None) => {}
                 Err(err) => last_error = Some(err.to_string()),
             }
+            if let Some(detail) = rejected_transaction_detail(tx_hash) {
+                return Err(format!("E_DISTRIBUTIONX_TX_REJECTED: {tx_hash} {detail}"));
+            }
             if started.elapsed() >= timeout {
                 let detail = last_error
                     .map(|err| format!(" last RPC error: {err}"))
@@ -355,6 +464,15 @@ fn wait_for_transaction(tx_hash: &str) -> Result<(), String> {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     })
+}
+
+fn rejected_transaction_detail(tx_hash: &str) -> Option<String> {
+    let path = std::env::var("DISTRIBUTIONX_LEZ_CU_LOG").ok()?;
+    let log = std::fs::read_to_string(path).ok()?;
+    log.lines()
+        .rev()
+        .find(|line| line.contains(tx_hash) && line.contains("failed execution check"))
+        .map(str::to_owned)
 }
 
 fn init_args(payload: &Value) -> Result<Value, String> {
@@ -393,6 +511,7 @@ fn fund_args(payload: &Value) -> Result<Value, String> {
 
 fn claim_args(payload: &Value) -> Result<Value, String> {
     let deployment = deployment_json()?;
+    let state = state_json()?;
     let journal = payload.get("journal");
     let serialized_lez_tx = payload
         .get("serialized_lez_tx")
@@ -414,6 +533,7 @@ fn claim_args(payload: &Value) -> Result<Value, String> {
         "receipt_bytes": receipt_bytes,
         "now_unix": tx.get("now_unix").and_then(Value::as_i64).unwrap_or_else(now_unix),
         "recipient": account_id_arg(required_str(&tx, "recipient")?)?,
+        "distributor": account_id_arg(required_str(&state, "distributor")?)?,
     });
     if let (Some(npk), Some(vpk)) = (
         tx.get("recipient_npk").and_then(Value::as_str),
@@ -424,6 +544,23 @@ fn claim_args(payload: &Value) -> Result<Value, String> {
     }
     if let Some(private_claim) = tx.get("private_claim") {
         args["private_claim"] = private_claim.clone();
+        for field in [
+            "bucket_id",
+            "claim_destination_commitment",
+            "claimant_address",
+            "salt",
+            "claim_sig",
+            "merkle_siblings",
+            "merkle_path_is_right",
+        ] {
+            args[field] = private_claim
+                .get(field)
+                .cloned()
+                .ok_or_else(|| format!("missing private_claim.{field}"))?;
+        }
+    }
+    if let Some(settlement) = payload.get("token_settlement") {
+        args["token_settlement"] = settlement.clone();
     }
     Ok(args)
 }
@@ -454,127 +591,6 @@ fn close_args(payload: &Value) -> Result<Value, String> {
     }))
 }
 
-fn submit_private_claim(args: &Value) -> Result<Value, String> {
-    let wallet = open_wallet(args)?;
-
-    let program_id = parse_program_id_hex(required_str(args, "program_id_hex")?)?;
-    let airdrop_id: [u8; 32] = serde_json::from_value(
-        args.get("airdrop_id").cloned().ok_or("missing airdrop_id")?,
-    )
-    .map_err(|e| format!("airdrop_id: {e}"))?;
-    let nullifier: [u8; 32] = serde_json::from_value(
-        args.get("nullifier").cloned().ok_or("missing nullifier")?,
-    )
-    .map_err(|e| format!("nullifier: {e}"))?;
-    let private_claim = args
-        .get("private_claim")
-        .ok_or("missing private_claim for private claim submit")?;
-    let bucket_id = private_claim
-        .get("bucket_id")
-        .and_then(Value::as_u64)
-        .filter(|value| *value <= u8::MAX as u64)
-        .ok_or("missing private_claim.bucket_id")? as u8;
-    let claim_destination_commitment: [u8; 32] = serde_json::from_value(
-        private_claim
-            .get("claim_destination_commitment")
-            .cloned()
-            .ok_or("missing private_claim.claim_destination_commitment")?,
-    )
-    .map_err(|e| format!("claim_destination_commitment: {e}"))?;
-    let claimant_address: [u8; 32] = serde_json::from_value(
-        private_claim
-            .get("claimant_address")
-            .cloned()
-            .ok_or("missing private_claim.claimant_address")?,
-    )
-    .map_err(|e| format!("claimant_address: {e}"))?;
-    let salt: [u8; 32] = serde_json::from_value(
-        private_claim
-            .get("salt")
-            .cloned()
-            .ok_or("missing private_claim.salt")?,
-    )
-    .map_err(|e| format!("salt: {e}"))?;
-    let claim_sig = bytes_vec(
-        private_claim
-            .get("claim_sig")
-            .ok_or("missing private_claim.claim_sig")?,
-        "private_claim.claim_sig",
-    )?;
-    let merkle_siblings: Vec<[u8; 32]> = serde_json::from_value(
-        private_claim
-            .get("merkle_siblings")
-            .cloned()
-            .ok_or("missing private_claim.merkle_siblings")?,
-    )
-    .map_err(|e| format!("merkle_siblings: {e}"))?;
-    let merkle_path_is_right: Vec<bool> = serde_json::from_value(
-        private_claim
-            .get("merkle_path_is_right")
-            .cloned()
-            .ok_or("missing private_claim.merkle_path_is_right")?,
-    )
-    .map_err(|e| format!("merkle_path_is_right: {e}"))?;
-    let now_unix = args
-        .get("now_unix")
-        .and_then(Value::as_i64)
-        .ok_or("missing now_unix")?;
-    let recipient_npk = NullifierPublicKey(parse_hex_32(required_str(args, "recipient_npk")?)?);
-    let recipient_vpk = Secp256k1Point(hex::decode(required_str(args, "recipient_vpk")?)
-        .map_err(|e| format!("recipient_vpk hex: {e}"))?);
-
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let nullifier_record = compute_pda_with_program(
-        &program_id,
-        &[b"nullifier", airdrop_id.as_ref(), nullifier.as_ref()],
-    )?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
-    let instruction = DistributionxPrivateInstruction::ClaimPrivate {
-        airdrop_id,
-        bucket_id,
-        nullifier,
-        claim_destination_commitment,
-        claimant_address,
-        salt,
-        claim_sig,
-        merkle_siblings,
-        merkle_path_is_right,
-        now_unix,
-    };
-    let instruction_data = Program::serialize_instruction(instruction)
-        .map_err(|e| format!("instruction serialization: {e}"))?;
-    let program = Program::new(std::fs::read(program_binary_path())
-        .map_err(|e| format!("read program binary: {e}"))?)
-        .map_err(|e| format!("program binary: {e}"))?;
-    if program.id() != program_id {
-        return Err(format!(
-            "program binary id mismatch: deployment={program_id:?} binary={:?}",
-            program.id()
-        ));
-    }
-    let program = ProgramWithDependencies::from(program);
-    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("tokio runtime: {e}"))?;
-    let tx_hash = rt.block_on(async {
-        wallet
-            .send_privacy_preserving_tx(
-                vec![
-                    PrivacyPreservingAccount::Public(airdrop),
-                    PrivacyPreservingAccount::Public(nullifier_record),
-                    PrivacyPreservingAccount::Public(vault),
-                    PrivacyPreservingAccount::PrivateForeign {
-                        npk: recipient_npk,
-                        vpk: recipient_vpk,
-                    },
-                ],
-                instruction_data,
-                &program,
-            )
-            .await
-            .map_err(|e| format!("privacy claim submit: {e}"))
-    })?.0;
-    Ok(json!({"success": true, "tx_hash": hex::encode(tx_hash.0)}))
-}
-
 fn call_generated(op: &str, args: &Value) -> Result<Value, String> {
     let body = args.to_string();
     let c_body = CString::new(body).map_err(|_| "args contain NUL byte")?;
@@ -582,6 +598,7 @@ fn call_generated(op: &str, args: &Value) -> Result<Value, String> {
         "init" => generated::distributionx_init_airdrop(c_body.as_ptr()),
         "fund" => generated::distributionx_fund(c_body.as_ptr()),
         "claim" => generated::distributionx_claim(c_body.as_ptr()),
+        "claim_private" => generated::distributionx_claim_private(c_body.as_ptr()),
         "close" => generated::distributionx_close(c_body.as_ptr()),
         _ => return Err(format!("unknown generated op: {op}")),
     };
@@ -635,15 +652,6 @@ fn state_dir() -> PathBuf {
 
 fn wallet_path() -> String {
     std::env::var("NSSA_WALLET_HOME_DIR").unwrap_or_else(|_| ".scaffold/wallet".to_owned())
-}
-
-fn program_binary_path() -> PathBuf {
-    std::env::var("DISTRIBUTIONX_PROGRAM_BIN")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("DISTRIBUTIONX_REPO_ROOT").unwrap_or_else(|_| ".".to_owned()))
-                .join("target/riscv-guest/example_program_deployment_methods/example_program_deployment_programs/riscv32im-risc0-zkvm-elf/release/distributionx.bin")
-        })
 }
 
 fn sequencer_url() -> String {
@@ -732,21 +740,6 @@ fn hex_array(value: &str) -> Result<Value, String> {
     Ok(bytes_array(&fixed_vec::<32>(bytes)?))
 }
 
-fn bytes_vec(value: &Value, field: &str) -> Result<Vec<u8>, String> {
-    value
-        .as_array()
-        .ok_or_else(|| format!("{field} must be a byte array"))?
-        .iter()
-        .map(|value| {
-            value
-                .as_u64()
-                .filter(|byte| *byte <= u8::MAX as u64)
-                .map(|byte| byte as u8)
-                .ok_or_else(|| format!("{field} must contain only bytes"))
-        })
-        .collect()
-}
-
 fn parse_hex_32(value: &str) -> Result<[u8; 32], String> {
     let bytes = hex::decode(value.trim()).map_err(|e| format!("hex: {e}"))?;
     fixed_vec::<32>(bytes)
@@ -791,9 +784,6 @@ update_receipt_cu() {
   [[ -n "${tx_id}" && -n "${program_id}" ]] || return 0
 
   kind="public"
-  if [[ "${op}" == "claim" && "${DISTRIBUTIONX_USE_PRIVATE_CLAIM:-0}" == "1" ]]; then
-    kind="privacy-circuit"
-  fi
   line="$(
     {
       if [[ -n "${adapter_stderr}" && -f "${adapter_stderr}" ]]; then
@@ -809,36 +799,9 @@ update_receipt_cu() {
 
   source="standalone-sequencer:${kind}"
   tmp="$(mktemp)"
-  if [[ "${op}" == "claim" && "${DISTRIBUTIONX_USE_PRIVATE_CLAIM:-0}" == "1" ]]; then
-    local inner_line inner_cu
-    inner_line="$(
-      {
-        if [[ -n "${adapter_stderr}" && -f "${adapter_stderr}" ]]; then
-          grep "DISTRIBUTIONX_LEZ_CU kind=private-program program_id=${program_id} cycles=" "${adapter_stderr}" 2>/dev/null || true
-        fi
-        if [[ -f "${cu_log}" ]]; then
-          grep "DISTRIBUTIONX_LEZ_CU kind=private-program program_id=${program_id} cycles=" "${cu_log}" 2>/dev/null || true
-        fi
-      } | tail -n 1
-    )"
-    inner_cu="${inner_line##*cycles=}"
-    if [[ "${inner_cu}" =~ ^[0-9]+$ ]]; then
-      jq --argjson cu "${cu}" --arg source "${source}" --argjson private_program_cu "${inner_cu}" \
-        '.cu = $cu
-         | .cu_source = $source
-         | .private_program_cu = $private_program_cu
-         | .private_program_cu_source = "standalone-sequencer:private-program"' \
-        "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
-    else
-      jq --argjson cu "${cu}" --arg source "${source}" \
-        '.cu = $cu | .cu_source = $source' \
-        "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
-    fi
-  else
-    jq --argjson cu "${cu}" --arg source "${source}" \
-      '.cu = $cu | .cu_source = $source' \
-      "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
-  fi
+  jq --argjson cu "${cu}" --arg source "${source}" \
+    '.cu = $cu | .cu_source = $source' \
+    "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
   rm -f "${tmp}"
 }
 

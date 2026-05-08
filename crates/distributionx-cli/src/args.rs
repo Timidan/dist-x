@@ -20,6 +20,12 @@ pub enum Command {
         distributor: String,
         #[arg(long, value_name = "TOKEN_ID", help = "Token id to distribute")]
         token: String,
+        #[arg(
+            long = "token-source-account",
+            value_name = "ACCOUNT",
+            help = "Token holding account that funds custom-token claim settlement"
+        )]
+        token_source_account: Option<String>,
         #[arg(long, value_name = "URL", help = "LEZ RPC URL")]
         rpc: String,
         #[arg(long, value_name = "UNIX_SECONDS", help = "Distribution expiry")]

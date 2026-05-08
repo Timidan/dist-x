@@ -14,7 +14,8 @@ Item {
             ? elapsed + " elapsed · Real proof generation can take several minutes. You can leave this window open."
             : (appRoot && appRoot.lastProofDurationSeconds > 0 ? "Proof generated in " + appRoot.formatElapsed(appRoot.lastProofDurationSeconds)
                 : (appRoot && appRoot.lastProofPath !== "" ? "Proof ready" : "privacy proof"))
-        var deliverSub = appRoot && appRoot.lastClaimTxId !== "" ? "tx " + String(appRoot.lastClaimTxId).substring(0, 12) + "…" : ""
+        var deliverSub = appRoot && appRoot.sampleStatus === "Delivering tokens" ? "submitting claim"
+            : appRoot && appRoot.lastClaimTxId !== "" ? "tx " + String(appRoot.lastClaimTxId).substring(0, 12) + "…" : ""
         var rowDefs = [
             { label: "Loading sample data",             sub: appRoot ? appRoot.distributionStateDir : "target/distributionx-testnet" },
             { label: "Eligibility list ready",          sub: appRoot && appRoot.lastEligibleCount > 0 ? appRoot.lastEligibleCount + " entries" : "8 entries" },
@@ -25,7 +26,8 @@ Item {
         ]
         var stages = ["Loading sample data", "Eligibility list ready", "Distribution pool funded",
                       "Generating your private proof", "Proof verified", "Tokens delivered"]
-        var activeIdx = stages.indexOf(status)
+        var activeStatus = status === "Delivering tokens" ? "Tokens delivered" : status
+        var activeIdx = stages.indexOf(activeStatus)
         if (status === "Ready to claim") activeIdx = -1
         var failed = (status === "Claim failed") || (error && error.length > 0)
         var items = []

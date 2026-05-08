@@ -5,6 +5,11 @@ log() {
   printf '[distributionx-risc0] %s\n' "$*"
 }
 
+RISC0_RUST_VERSION="${RISC0_RUST_VERSION:-1.94.1}"
+RISC0_CPP_VERSION="${RISC0_CPP_VERSION:-2024.1.5}"
+RISC0_CARGO_RISCZERO_VERSION="${RISC0_CARGO_RISCZERO_VERSION:-3.0.5}"
+RISC0_R0VM_VERSION="${RISC0_R0VM_VERSION:-3.0.5}"
+
 find_rzup() {
   if command -v rzup >/dev/null 2>&1; then
     command -v rzup
@@ -38,11 +43,35 @@ if [[ -n "${GITHUB_PATH:-}" ]]; then
 fi
 
 log "Using ${RZUP_BIN}"
-"${RZUP_BIN}" install rust
-"${RZUP_BIN}" install cpp
-"${RZUP_BIN}" install cargo-risczero
-"${RZUP_BIN}" install r0vm
-"${RZUP_BIN}" show
+RZUP_SHOW="$("${RZUP_BIN}" show 2>/dev/null || true)"
+
+component_installed() {
+  local component="$1"
+  local version="$2"
+  printf '%s\n' "${RZUP_SHOW}" | awk -v component="${component}" -v version="${version}" '
+    $0 == component { in_component = 1; next }
+    in_component && $1 == "*" && $2 == version { found = 1; exit }
+    in_component && NF && $1 != "*" { in_component = 0 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+install_component() {
+  local component="$1"
+  local version="$2"
+  if component_installed "${component}" "${version}"; then
+    log "${component} ${version} already installed"
+    return
+  fi
+  "${RZUP_BIN}" install "${component}" "${version}"
+  RZUP_SHOW="$("${RZUP_BIN}" show 2>/dev/null || true)"
+}
+
+install_component rust "${RISC0_RUST_VERSION}"
+install_component cpp "${RISC0_CPP_VERSION}"
+install_component cargo-risczero "${RISC0_CARGO_RISCZERO_VERSION}"
+install_component r0vm "${RISC0_R0VM_VERSION}"
+printf '%s\n' "${RZUP_SHOW}"
 
 if ! find "${RISC0_HOME:-${HOME}/.risc0}/toolchains" -path '*/bin/rustc' -type f -print -quit 2>/dev/null | grep -q .; then
   echo "E_RISC0_RUST_TOOLCHAIN_MISSING: rzup did not install a Risc0 Rust toolchain" >&2

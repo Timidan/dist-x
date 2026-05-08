@@ -10,13 +10,13 @@ Each claim publishes `nullifier = H_NULL(salt)`. The LEZ/SPEL account model stor
 
 ## Privacy Model
 
-The private witness contains the eligible address, salt, claim signature, and Merkle path. The public journal contains only `airdrop_id`, `merkle_root`, `bucket_id`, `nullifier`, and `claim_destination_commitment`. The public receipt claim instruction accepts `airdrop_id`, `nullifier`, `receipt_bytes`, and `now_unix`; on that path the eligible address, salt, signature, and Merkle path stay inside the locally generated Risc0 receipt witness. The LEZ-private `claim_private` path carries the same witness fields inside the private transaction instruction so LEZ can verify eligibility without nesting the Risc0 verifier in the public session; those fields are private-execution inputs, not public claim journal data.
+The private witness contains the eligible address, salt, claim signature, and Merkle path. The Risc0 public journal contains only `airdrop_id`, `merkle_root`, `bucket_id`, `nullifier`, and `claim_destination_commitment`. The reviewer flow always uses a shielded destination packet and submits the LEZ `claim_private` instruction, which rebuilds the same journal from private claim inputs and verifies the witness without exposing the eligible address, salt, signature, or Merkle path in the public journal.
 
 The claim signature binds `logos-distributionx/claim-v2 || airdrop_id || claim_destination_commitment`. A relayer or observer can submit the same proof to the same commitment, but changing the destination commitment invalidates the in-circuit Ed25519 verification.
 
 ## LEZ Account Model
 
-The IDL in `crates/distributionx-program/idl/distributionx.json` defines `Airdrop` and `NullifierRecord` PDAs, plus `init_airdrop`, `fund`, `claim`, `claim_private`, and `close`. The public `claim` path verifies the Risc0 receipt against the DistributionX image id, verifies the receipt journal against airdrop state, checks the recipient account matches `claim_destination_commitment`, debits the vault, credits the initialized recipient account, and writes the nullifier atomically. The LEZ-private `claim_private` path builds the same journal from private instruction inputs and verifies the witness directly inside the private transaction.
+The IDL in `crates/distributionx-program/idl/distributionx.json` defines `Airdrop` and `NullifierRecord` PDAs, plus `init_airdrop`, `fund`, `claim_private`, `claim`, and `close`. The active Basecamp, CLI, and localnet scripts require the `claim_private` path. `claim_private` verifies the witness, checks the rebuilt journal against airdrop state, debits the vault, records the nullifier atomically, and emits the local submit receipt. The local submit adapter then settles the configured custom token transfer to the destination commitment account.
 
 The relayer architecture is claimant-built: the claimant CLI/module computes the destination commitment and submits an opaque serialized LEZ transaction plus receipt/journal metadata. The relayer forwards the transaction and returns the testnet transaction id.
 
@@ -34,7 +34,7 @@ Relayers see claim payload timing, destination commitment, nullifier, and receip
 
 The distributor knows the input CSV and may retain salts. That means the distributor can precompute nullifier-to-row mappings if it keeps the salt table; DistributionX protects observers from learning the claimant address, not from a distributor that preserves its original eligibility secrets. A compromised local host is out of scope.
 
-Failed proof verification, insufficient vault balance, or failed recipient credit must not persist a nullifier. The production transaction path is designed to verify the proof, debit the vault, credit the destination, and insert the nullifier atomically.
+Failed proof verification, insufficient vault balance, or failed token settlement must not be reported as a completed claim. The transaction path verifies the proof, debits the vault, and inserts the nullifier atomically; the local submit adapter waits for both the claim transaction and custom-token settlement transaction before returning success.
 
 ## Integration
 

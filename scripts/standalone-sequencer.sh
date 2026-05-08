@@ -85,16 +85,13 @@ patch_public_execution_cycle_limit() {
 
 patch_cycle_logging() {
   local public_file="${LEZ_REPO}/nssa/src/program.rs"
-  local private_file="${LEZ_REPO}/nssa/src/privacy_preserving_transaction/circuit.rs"
   [[ -f "${public_file}" ]] || die "nssa program source not found: ${public_file}"
-  [[ -f "${private_file}" ]] || die "nssa privacy circuit source not found: ${private_file}"
 
-  python3 - "${public_file}" "${private_file}" <<'PY'
+  python3 - "${public_file}" <<'PY'
 from pathlib import Path
 import sys
 
 public_file = Path(sys.argv[1])
-private_file = Path(sys.argv[2])
 
 public_text = public_file.read_text()
 if "DISTRIBUTIONX_LEZ_CU kind=public" not in public_text:
@@ -124,70 +121,6 @@ if "DISTRIBUTIONX_LEZ_CU kind=public" not in public_text:
     if needle not in public_text:
         raise SystemExit(f"public cycle insertion point not found in {public_file}")
     public_file.write_text(public_text.replace(needle, replacement))
-
-private_text = private_file.read_text()
-if "DISTRIBUTIONX_LEZ_CU kind=privacy-circuit" not in private_text:
-    needle = """    let prove_info = prover
-        .prove_with_opts(env, PRIVACY_PRESERVING_CIRCUIT_ELF, &opts)
-        .map_err(|e| NssaError::CircuitProvingError(e.to_string()))?;
-
-    let proof = Proof(borsh::to_vec(&prove_info.receipt.inner)?);
-"""
-    replacement = """    let prove_info = prover
-        .prove_with_opts(env, PRIVACY_PRESERVING_CIRCUIT_ELF, &opts)
-        .map_err(|e| NssaError::CircuitProvingError(e.to_string()))?;
-    let program_id_hex: String = program_with_dependencies
-        .program
-        .id()
-        .iter()
-        .flat_map(|word| word.to_le_bytes())
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    eprintln!(
-        "DISTRIBUTIONX_LEZ_CU kind=privacy-circuit program_id={} cycles={}",
-        program_id_hex,
-        prove_info.stats.user_cycles
-    );
-
-    let proof = Proof(borsh::to_vec(&prove_info.receipt.inner)?);
-"""
-    if needle not in private_text:
-        raise SystemExit(f"privacy circuit cycle insertion point not found in {private_file}")
-    private_text = private_text.replace(needle, replacement)
-
-if "DISTRIBUTIONX_LEZ_CU kind=private-program" not in private_text:
-    needle = """    // Prove the program
-    let prover = default_prover();
-    Ok(prover
-        .prove(env, program.elf())
-        .map_err(|e| NssaError::ProgramProveFailed(e.to_string()))?
-        .receipt)
-}
-"""
-    replacement = """    // Prove the program
-    let prover = default_prover();
-    let prove_info = prover
-        .prove(env, program.elf())
-        .map_err(|e| NssaError::ProgramProveFailed(e.to_string()))?;
-    let program_id_hex: String = program
-        .id()
-        .iter()
-        .flat_map(|word| word.to_le_bytes())
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    eprintln!(
-        "DISTRIBUTIONX_LEZ_CU kind=private-program program_id={} cycles={}",
-        program_id_hex,
-        prove_info.stats.user_cycles
-    );
-    Ok(prove_info.receipt)
-}
-"""
-    if needle not in private_text:
-        raise SystemExit(f"private program cycle insertion point not found in {private_file}")
-    private_text = private_text.replace(needle, replacement)
-
-private_file.write_text(private_text)
 PY
 }
 

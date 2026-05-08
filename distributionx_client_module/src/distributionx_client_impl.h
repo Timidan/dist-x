@@ -12,13 +12,15 @@ public:
     std::string startSampleFixture(const std::string& outDir);
     std::string createWallet(const std::string& state_dir);
     std::string startCreateWallet(const std::string& state_dir);
-    std::string initDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery);
-    std::string startInitDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery);
+    std::string initDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& tokenSourceAccount, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery);
+    std::string startInitDistribution(const std::string& csvPath, const std::string& distributor, const std::string& token, const std::string& tokenSourceAccount, const std::string& rpc, const std::string& expiryUnix, const std::string& recovery);
     std::string fund(const std::string& airdrop, const std::string& amount);
     std::string startFund(const std::string& airdrop, const std::string& amount);
     std::string queryTokenBalance(const std::string& rpc_url, const std::string& account, const std::string& token_id);
     std::string tokenId(const std::string& name);
     std::string startTokenId(const std::string& name);
+    std::string mintToken(const std::string& name, const std::string& totalSupply);
+    std::string startMintToken(const std::string& name, const std::string& totalSupply);
     std::string loadDestinationPacket(const std::string& destinationPacketJsonPath);
     std::string checkEligibility(const std::string& airdrop, const std::string& bundlePath, const std::string& walletPath, const std::string& destinationPacketJsonPath);
     std::string startCheckEligibility(const std::string& airdrop, const std::string& bundlePath, const std::string& walletPath, const std::string& destinationPacketJsonPath);

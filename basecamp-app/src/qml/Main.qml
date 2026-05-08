@@ -23,6 +23,7 @@ Item {
     property string eligibilityCsvPath: distributionStateDir + "/eligible.csv"
     property string destinationPacket: distributionStateDir + "/shielded_destination.json"
     property string destinationCommitment: ""
+    readonly property string claimantBalanceAccount: destinationCommitment !== "" ? "Public/" + destinationCommitment : ""
     property string claimLink: ""
     property string claimLinkError: ""
     property string claimBundleOverride: ""
@@ -33,6 +34,7 @@ Item {
     property string distributorAccount: ""
     property string configuredDistributorAccount: ""
     property string tokenId: ""
+    property string tokenSourceAccount: ""
     property string recoveryAddress: ""
     property string fundAmount: "3000"
     property string expiryUnix: "1893456000"
@@ -45,6 +47,14 @@ Item {
     property string distributorError: ""
     property string distributorTokenBalance: ""
     property string distributorTokenBalanceError: ""
+    property string claimantTokenBalance: ""
+    property string claimantTokenBalanceError: ""
+    property string claimantTokenBalanceAccount: ""
+    property string claimantTokenBalanceTokenId: ""
+    property string claimantTokenBalanceAirdrop: ""
+    property string claimantTokenBalanceClaimKey: ""
+    property string claimantTokenBalanceNullifier: ""
+    property int claimPageRefreshAttempts: 0
     property var airdrops: []
     property string selectedAirdropId: ""
     property string registryError: ""
@@ -80,12 +90,37 @@ Item {
     readonly property bool claimEligibilityOk: claimEligibilityStatus === "eligible"
     readonly property bool proofRunning: proofStartedAtMs > 0
 
-    onDestinationPacketChanged: resetClaimEligibility()
-    onSelectedAirdropIdChanged: resetClaimEligibility()
-    onDistributionStateDirChanged: resetClaimEligibility()
-    onTestnetRpcChanged: Qt.callLater(queryDistributorBalance)
+    onScreenChanged: if (screen === "claim") {
+        scheduleClaimPageRefresh()
+    }
+    onDestinationPacketChanged: {
+        resetClaimEligibility()
+        resetClaimantBalance()
+        if (screen === "claim") scheduleClaimPageRefresh()
+    }
+    onDestinationCommitmentChanged: {
+        resetClaimantBalance()
+        if (screen === "claim") scheduleClaimPageRefresh()
+    }
+    onSelectedAirdropIdChanged: {
+        resetClaimEligibility()
+        resetClaimantBalance()
+    }
+    onDistributionStateDirChanged: {
+        resetClaimEligibility()
+        resetClaimantBalance()
+    }
+    onTestnetRpcChanged: {
+        Qt.callLater(queryDistributorBalance)
+        Qt.callLater(queryClaimantBalance)
+    }
     onDistributorAccountChanged: Qt.callLater(queryDistributorBalance)
-    onTokenIdChanged: Qt.callLater(queryDistributorBalance)
+    onTokenIdChanged: {
+        resetClaimantBalance()
+        Qt.callLater(queryDistributorBalance)
+        Qt.callLater(queryClaimantBalance)
+    }
+    onTokenSourceAccountChanged: Qt.callLater(queryDistributorBalance)
 
     // Theme: Ledger Paper direction (warm cream, deep-rose seal, editorial serif)
     readonly property QtObject theme: QtObject {
@@ -197,6 +232,7 @@ Item {
         configuredDistributorAccount = argumentValue("distributionx-distributor=", configuredDistributorAccount)
         distributorAccount = configuredDistributorAccount !== "" ? configuredDistributorAccount : distributorAccount
         tokenId = argumentValue("distributionx-token=", tokenId)
+        tokenSourceAccount = argumentValue("distributionx-token-source=", tokenSourceAccount)
         recoveryAddress = argumentValue("distributionx-recovery=", recoveryAddress)
         fundAmount = argumentValue("distributionx-fund-amount=", fundAmount)
         expiryUnix = argumentValue("distributionx-expiry-unix=", expiryUnix)
@@ -235,6 +271,7 @@ Item {
         items.push({ label: "RPC", value: testnetRpc !== "" ? "Connected" : "Missing", ok: testnetRpc !== "" })
         items.push({ label: "Distributor signer", value: distributorAccount !== "" ? "Configured" : "Missing", ok: distributorAccount !== "" })
         items.push({ label: "Token id", value: tokenId !== "" ? "Configured" : "Missing", ok: tokenId !== "" })
+        items.push({ label: "Token source", value: tokenSourceAccount !== "" ? "Configured" : "Missing", ok: tokenSourceAccount !== "" })
         items.push({ label: "Recovery account", value: recoveryAddress !== "" ? "Configured" : "Missing", ok: recoveryAddress !== "" })
         var relayerOk = relayerUrl !== "" && claimSubmitCommandConfigured
         var relayerValue = relayerUrl !== "" && claimSubmitCommandConfigured ? "Configured" : "Missing"
@@ -265,6 +302,7 @@ Item {
         if (testnetRpc === "") missing.push("LEZ_RPC_URL")
         if (distributorAccount === "") missing.push("LEZ_DEPLOYER_WALLET")
         if (tokenId === "") missing.push("DISTRIBUTIONX_TOKEN_ID")
+        if (tokenSourceAccount === "") missing.push("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT")
         if (recoveryAddress === "") missing.push("DISTRIBUTIONX_RECOVERY_ADDRESS")
         if (serializedLezTxPath === "") missing.push("DISTRIBUTIONX_SERIALIZED_LEZ_TX")
         if (!initSubmitCommandConfigured) missing.push("DISTRIBUTIONX_INIT_SUBMIT_COMMAND")
@@ -319,13 +357,29 @@ Item {
         return airdrops.length > 0 ? airdrops[0] : null
     }
 
+    function activeTokenId() {
+        if (tokenId !== "") return tokenId
+        var selected = selectedAirdrop()
+        return selected && selected.token_id ? String(selected.token_id) : ""
+    }
+
+    function activeTokenSourceAccount() {
+        if (tokenSourceAccount !== "") return tokenSourceAccount
+        var selected = selectedAirdrop()
+        return selected && selected.token_source_account ? String(selected.token_source_account) : ""
+    }
+
     function selectRegistryAirdrop(airdropId, name) {
         selectedAirdropId = airdropId
         airdropName = name
         claimBundleOverride = ""
         claimLink = ""
         claimLinkError = ""
+        var selected = selectedAirdrop()
+        if (selected && selected.token_id) tokenId = String(selected.token_id)
+        if (selected && selected.token_source_account) tokenSourceAccount = String(selected.token_source_account)
         resetClaimEligibility()
+        resetClaimantBalance()
     }
 
     function claimAirdropName() {
@@ -343,6 +397,7 @@ Item {
         claimBundleOverride = normalizeFilePath(path)
         claimLinkError = ""
         resetClaimEligibility()
+        resetClaimantBalance()
         if (screen === "claim") Qt.callLater(refreshClaimEligibility)
     }
 
@@ -393,6 +448,7 @@ Item {
             airdropName = claimLink
             claimBundleOverride = ""
             resetClaimEligibility()
+            resetClaimantBalance()
             if (screen === "claim") Qt.callLater(refreshClaimEligibility)
             return true
         }
@@ -407,6 +463,7 @@ Item {
         airdropName = id
         claimBundleOverride = bundle
         resetClaimEligibility()
+        resetClaimantBalance()
         if (screen === "claim") Qt.callLater(refreshClaimEligibility)
         return true
     }
@@ -441,6 +498,55 @@ Item {
         return claimEligibilityStatus === "claimed"
             || text.indexOf("already claimed") !== -1
             || text.indexOf("e_already_claimed") !== -1
+    }
+
+    function resetClaimantBalance() {
+        claimantTokenBalance = ""
+        claimantTokenBalanceError = ""
+        claimantTokenBalanceAccount = ""
+        claimantTokenBalanceTokenId = ""
+        claimantTokenBalanceAirdrop = ""
+        claimantTokenBalanceClaimKey = ""
+        claimantTokenBalanceNullifier = ""
+    }
+
+    function claimantBalanceMatchesCurrentClaim() {
+        return claimantTokenBalance !== ""
+            && claimantTokenBalanceAccount === claimantBalanceAccount
+            && claimantTokenBalanceTokenId === activeTokenId()
+            && claimantTokenBalanceAirdrop === claimAirdropName()
+            && claimantTokenBalanceClaimKey === claimantPubkey
+            && claimantTokenBalanceNullifier === claimEligibilityNullifier
+    }
+
+    function claimantBalanceCanShowTokenBalance() {
+        if (!claimantBalanceMatchesCurrentClaim()) return false
+        if (claimEligibilityStatus === "claimed") return true
+        return lastClaimTxId !== ""
+            && claimEligibilityNullifier !== ""
+            && claimantTokenBalanceNullifier === claimEligibilityNullifier
+    }
+
+    function claimantBalanceText() {
+        if (claimantTokenBalanceError !== "") return "unavailable"
+        if (claimantBalanceCanShowTokenBalance()) return claimantTokenBalance + " tokens"
+        if (claimEligibilityStatus === "eligible" || claimEligibilityStatus === "checking") return "0 tokens"
+        if (claimEligibilityStatus === "claimed" && claimantBalanceAccount !== "") return "loading"
+        if (claimantBalanceAccount !== "") return "not checked"
+        if (destinationPacket !== "") return "loading"
+        return "-"
+    }
+
+    function scheduleClaimPageRefresh() {
+        if (screen !== "claim" || sampleRunning) return
+        claimPageRefreshTimer.restart()
+    }
+
+    function refreshClaimPage() {
+        if (destinationPacket !== "" && destinationCommitment === "") {
+            if (!loadDestinationPacket(destinationPacket, false, false)) return false
+        }
+        return queryClaimantBalance()
     }
 
     function rememberEligibility(parsed) {
@@ -492,10 +598,12 @@ Item {
             claimEligibilityError = parsed && parsed.error ? String(parsed.error) : friendlyError(response)
             claimEligibilityStatus = claimAlreadyClaimed() ? "claimed" : "rejected"
             if (!sampleRunning) sampleError = claimEligibilityError
+            if (claimEligibilityStatus === "claimed") Qt.callLater(queryClaimantBalance)
             activeOperation = ""
             return false
         }
         rememberEligibility(parsed)
+        Qt.callLater(queryClaimantBalance)
         if (!sampleRunning) sampleError = ""
         activeOperation = ""
         return true
@@ -523,6 +631,15 @@ Item {
         } catch (e) {
         }
         if (text.indexOf("E_AIRDROP_ID_MISMATCH") !== -1) {
+            if (actionJobKind === "fund" || activeOperation.indexOf("fund") !== -1) {
+                return "The selected distribution does not match the initialized local state. Re-initialize this distribution, then fund it."
+            }
+            if (actionJobKind === "initDistribution" || activeOperation.indexOf("initializ") !== -1) {
+                return "The selected distribution does not match the local state. Restart with --reset-localnet --clean-user-dir and initialize again."
+            }
+            if (samplePendingOperation === "checkEligibility" || activeOperation.indexOf("eligibility") !== -1) {
+                return "The selected bundle does not match this distribution."
+            }
             return "This proof was generated for a different distribution. Generate a fresh proof for the selected distribution."
         }
         if (text.indexOf("E_RECEIPT_JOURNAL_MISMATCH") !== -1) {
@@ -551,6 +668,18 @@ Item {
         }
         if (text.indexOf("E_PROGRAM_7") !== -1) {
             return "This distribution is not funded enough for this claim."
+        }
+        if (text.indexOf("E_DISTRIBUTIONX_TX_REJECTED") !== -1) {
+            return "The local sequencer rejected the claim transaction. Restart with --reset-localnet --clean-user-dir and try the claim again."
+        }
+        if (text.indexOf("E_DISTRIBUTIONX_TX_NOT_INCLUDED") !== -1) {
+            return "The claim transaction was submitted but not confirmed before the timeout."
+        }
+        if (text.indexOf("E_DISTRIBUTIONX_PRIVATE_CLAIM_PAYLOAD_MISSING") !== -1) {
+            return "The shielded claim payload is missing. Generate a fresh proof, then claim again."
+        }
+        if (text.indexOf("E_DISTRIBUTIONX_PRIVATE_CLAIM_REQUIRED") !== -1) {
+            return "This flow requires a shielded claim payload. Load a destination packet and generate a fresh proof."
         }
         if (text.indexOf("E_ALREADY_CLAIMED") !== -1) {
             return "This wallet has already claimed this distribution."
@@ -613,27 +742,46 @@ Item {
         return text
     }
 
-    function loadDestinationPacket(path) {
+    function destinationCommitmentFromResponse(response) {
+        var parsed = parseClientJson(response)
+        if (parsed && parsed.claim_destination_commitment !== undefined) {
+            return String(parsed.claim_destination_commitment)
+        }
+        var match = /"claim_destination_commitment"\s*:\s*"([^"]+)"/.exec(String(response))
+        return match && match.length > 1 ? String(match[1]) : ""
+    }
+
+    function loadDestinationPacket(path, refreshEligibility, refreshBalance) {
+        var shouldRefreshEligibility = refreshEligibility !== false
+        var shouldRefreshBalance = refreshBalance !== false
         sampleError = ""
         var response = callClient("loadDestinationPacket", [path])
         sampleDetail += "Destination packet: " + String(response) + "\n"
         if (!responseHas(response, "DESTINATION_PACKET_OK")) {
-            sampleError = friendlyError(response)
+            var loadError = friendlyError(response)
+            sampleError = loadError
             destinationCommitment = ""
             resetClaimEligibility()
+            claimantTokenBalance = ""
+            claimantTokenBalanceError = loadError
             return false
         }
         destinationMode = "external-wallet"
         destinationPacket = path
         recoveryGateStatus = "attested"
         backupAttestedAt = new Date().toISOString()
-        var marker = "\"claim_destination_commitment\":\""
-        var idx = String(response).indexOf(marker)
-        if (idx !== -1) {
-            var start = idx + marker.length
-            destinationCommitment = String(response).substring(start, start + 64)
+        var commitment = destinationCommitmentFromResponse(response)
+        if (commitment === "") {
+            var parseError = "Destination packet did not return a destination account."
+            sampleError = parseError
+            destinationCommitment = ""
+            claimantTokenBalance = ""
+            claimantTokenBalanceError = parseError
+            return false
         }
-        if (screen === "claim") Qt.callLater(refreshClaimEligibility)
+        destinationCommitment = commitment
+        if (shouldRefreshBalance) Qt.callLater(queryClaimantBalance)
+        if (shouldRefreshEligibility && screen === "claim") Qt.callLater(refreshClaimEligibility)
         return true
     }
 
@@ -689,10 +837,12 @@ Item {
             return failActionJob(output)
         }
         var parsed = parseClientJson(output)
-        if ((actionJobKind === "initDistribution" || actionJobKind === "fund" || actionJobKind === "createWallet" || actionJobKind === "tokenId") && !parsed) {
+        if ((actionJobKind === "initDistribution" || actionJobKind === "fund" || actionJobKind === "createWallet" || actionJobKind === "tokenId" || actionJobKind === "mintToken") && !parsed) {
             return failActionJob(output)
         }
         if (actionJobKind === "sampleFixture") {
+            distributorError = ""
+            sampleError = ""
             if (parsed && parsed.admin_account !== undefined) {
                 recoveryAddress = String(parsed.admin_account)
             }
@@ -710,14 +860,19 @@ Item {
         } else if (actionJobKind === "initDistribution") {
             rememberInitReceipt(parsed)
             distributorStatus = "Distribution initialized"
+            distributorError = ""
+            sampleError = ""
             refreshAirdrops()
         } else if (actionJobKind === "fund") {
             rememberFundReceipt(parsed)
             distributorStatus = "Distribution funded"
+            distributorError = ""
+            sampleError = ""
             refreshAirdrops()
         } else if (actionJobKind === "createWallet") {
             claimantPubkey = parsed.account
             resetClaimEligibility()
+            resetClaimantBalance()
             if (screen === "claim") Qt.callLater(refreshClaimEligibility)
             distributorStatus = "Claim key saved"
             distributorError = ""
@@ -726,6 +881,12 @@ Item {
             tokenId = parsed.token_id
             distributorStatus = "Token id ready"
             distributorError = ""
+        } else if (actionJobKind === "mintToken") {
+            tokenId = parsed.token_id
+            tokenSourceAccount = parsed.supply_account_id
+            distributorStatus = "Token minted"
+            distributorError = ""
+            Qt.callLater(queryDistributorBalance)
         }
         clearActionJob()
         return true
@@ -754,22 +915,23 @@ Item {
     function initializeDistribution() {
         sampleError = ""
         distributorError = ""
-        if (testnetRpc === "" || distributorAccount === "" || tokenId === "" || recoveryAddress === "" || eligibilityCsvPath === "") {
+        if (testnetRpc === "" || distributorAccount === "" || tokenId === "" || tokenSourceAccount === "" || recoveryAddress === "" || eligibilityCsvPath === "") {
             distributorStatus = "Setup failed"
-            distributorError = "Configuration error: set LEZ_RPC_URL, LEZ_DEPLOYER_WALLET, DISTRIBUTIONX_TOKEN_ID, DISTRIBUTIONX_RECOVERY_ADDRESS, and the eligibility CSV path."
+            distributorError = "Configuration error: set LEZ_RPC_URL, LEZ_DEPLOYER_WALLET, DISTRIBUTIONX_TOKEN_ID, DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT, DISTRIBUTIONX_RECOVERY_ADDRESS, and the eligibility CSV path."
             sampleError = distributorError
             return false
         }
         distributorStatus = "Initializing distribution"
-        return startActionJob("initDistribution", "initializing the distribution", "startInitDistribution", [eligibilityCsvPath, distributorAccount, tokenId, testnetRpc, expiryUnix, recoveryAddress], "INIT_OK")
+        return startActionJob("initDistribution", "initializing the distribution", "startInitDistribution", [eligibilityCsvPath, distributorAccount, tokenId, tokenSourceAccount, testnetRpc, expiryUnix, recoveryAddress], "INIT_OK")
     }
 
     function queryDistributorBalance() {
         distributorTokenBalance = ""
         distributorTokenBalanceError = ""
-        if (testnetRpc === "" || distributorAccount === "" || tokenId === "") return false
+        var sourceAccount = activeTokenSourceAccount()
+        if (testnetRpc === "" || sourceAccount === "" || activeTokenId() === "") return false
 
-        var response = callClient("queryTokenBalance", [testnetRpc, distributorAccount, tokenId])
+        var response = callClient("queryTokenBalance", [testnetRpc, sourceAccount, activeTokenId()])
         var parsed = parseClientJson(response)
         if (!parsed || parsed.status !== "QUERY_BALANCE_OK") {
             distributorTokenBalanceError = parsed && parsed.error ? String(parsed.error) : friendlyError(response)
@@ -780,6 +942,47 @@ Item {
             return false
         }
         distributorTokenBalance = String(parsed.balance)
+        return true
+    }
+
+    function queryClaimantBalance() {
+        claimantTokenBalance = ""
+        claimantTokenBalanceError = ""
+        if (testnetRpc === "") {
+            claimantTokenBalanceError = "LEZ RPC URL is not configured."
+            return false
+        }
+        if (claimantBalanceAccount === "") {
+            if (destinationPacket !== "") {
+                if (!loadDestinationPacket(destinationPacket, false, false)) return false
+            }
+            if (claimantBalanceAccount === "") {
+                claimantTokenBalanceError = "Destination packet did not return a destination account."
+                return false
+            }
+        }
+
+        var balanceToken = activeTokenId()
+        if (balanceToken === "") {
+            claimantTokenBalanceError = "Token id is not configured for this distribution."
+            return false
+        }
+        var response = callClient("queryTokenBalance", [testnetRpc, claimantBalanceAccount, balanceToken])
+        var parsed = parseClientJson(response)
+        if (!parsed || parsed.status !== "QUERY_BALANCE_OK") {
+            claimantTokenBalanceError = parsed && parsed.error ? String(parsed.error) : friendlyError(response)
+            return false
+        }
+        if (parsed.balance === undefined) {
+            claimantTokenBalanceError = "Balance response missing balance."
+            return false
+        }
+        claimantTokenBalance = String(parsed.balance)
+        claimantTokenBalanceAccount = claimantBalanceAccount
+        claimantTokenBalanceTokenId = balanceToken
+        claimantTokenBalanceAirdrop = claimAirdropName()
+        claimantTokenBalanceClaimKey = claimantPubkey
+        claimantTokenBalanceNullifier = claimEligibilityNullifier
         return true
     }
 
@@ -800,6 +1003,18 @@ Item {
     function generateTestTokenId() {
         distributorError = ""
         return startActionJob("tokenId", "creating token id", "startTokenId", [airdropName !== "" ? airdropName + "-token" : "test-token"], "TOKEN_ID_OK")
+    }
+
+    function mintTokenSupply() {
+        if (lastCsvInspection && lastCsvInspection.total_amount !== undefined) return String(lastCsvInspection.total_amount)
+        if (fundAmount !== "") return fundAmount
+        return "3000"
+    }
+
+    function mintDistributionToken() {
+        distributorError = ""
+        distributorStatus = "Minting token"
+        return startActionJob("mintToken", "minting token", "startMintToken", [airdropName !== "" ? airdropName + "-token" : "distributionx-token", mintTokenSupply()], "TOKEN_MINTED")
     }
 
     property var lastCsvInspection: null
@@ -887,10 +1102,14 @@ Item {
             claimantPubkey = ""
             claimantWalletError = friendlyError(response)
             resetClaimEligibility()
+            resetClaimantBalance()
             return false
         }
         var pubkey = parsed.pubkey_lez ? String(parsed.pubkey_lez) : String(parsed.pubkey)
-        if (claimantPubkey !== pubkey) resetClaimEligibility()
+        if (claimantPubkey !== pubkey) {
+            resetClaimEligibility()
+            resetClaimantBalance()
+        }
         claimantPubkey = pubkey
         if (screen === "claim") Qt.callLater(refreshClaimEligibility)
         return true
@@ -903,10 +1122,14 @@ Item {
         if (!parsed || parsed.status !== "SET_WALLET_OK") {
             claimantWalletError = friendlyError(response)
             resetClaimEligibility()
+            resetClaimantBalance()
             return false
         }
         var pubkey = parsed.pubkey_lez ? String(parsed.pubkey_lez) : String(parsed.pubkey)
-        if (claimantPubkey !== pubkey) resetClaimEligibility()
+        if (claimantPubkey !== pubkey) {
+            resetClaimEligibility()
+            resetClaimantBalance()
+        }
         claimantPubkey = pubkey
         if (screen === "claim") Qt.callLater(refreshClaimEligibility)
         return true
@@ -1007,7 +1230,8 @@ Item {
             return false
         }
         distributorStatus = "Funding distribution"
-        return startActionJob("fund", "funding the distribution", "startFund", [airdropName, fundAmount], "FUND_OK")
+        var fundAirdrop = lastAirdropId !== "" ? lastAirdropId : airdropName
+        return startActionJob("fund", "funding the distribution", "startFund", [fundAirdrop, fundAmount], "FUND_OK")
     }
 
     function startProofTimer() {
@@ -1035,10 +1259,21 @@ Item {
 
     function rememberInitReceipt(parsed) {
         if (!parsed) return
-        if (parsed.airdrop_id) lastAirdropId = String(parsed.airdrop_id)
+        if (parsed.airdrop_id) {
+            lastAirdropId = String(parsed.airdrop_id)
+            selectedAirdropId = lastAirdropId
+        }
         if (parsed.tx_id) lastInitTxId = String(parsed.tx_id)
         if (parsed.bundle_path) lastBundlePath = String(parsed.bundle_path)
         if (parsed.eligible_count !== undefined) lastEligibleCount = Number(parsed.eligible_count) || 0
+        lastFundedAmount = ""
+        lastFundTxId = ""
+        lastTotalFunded = 0
+        lastTotalClaimed = 0
+        lastClaimTxId = ""
+        lastClaimAmount = ""
+        lastProofPath = ""
+        lastProofDurationSeconds = 0
     }
 
     function rememberFundReceipt(parsed) {
@@ -1062,6 +1297,7 @@ Item {
         claimEligibilityStatus = "claimed"
         claimEligibilityError = ""
         if (parsed.amount !== undefined) claimEligibilityAmount = String(parsed.amount)
+        Qt.callLater(queryClaimantBalance)
     }
 
     function maybeFinishAutoRunSample() {
@@ -1129,6 +1365,7 @@ Item {
             sampleRunning = false
             activeOperation = ""
             refreshAirdrops()
+            Qt.callLater(queryClaimantBalance)
             maybeFinishAutoRunSample()
             return
         }
@@ -1224,12 +1461,12 @@ Item {
         sampleRunning = true
         sampleSteps = [
             ["startSampleFixture", [distributionStateDir], "SAMPLE_FIXTURE_OK", "Loading sample data", "sampleFixture"],
-            ["startInitDistribution", [distributionStateDir + "/eligible.csv", distributorAccount, tokenId, testnetRpc, expiryUnix, recoveryAddress], "INIT_OK", "Eligibility list ready", "initDistribution"],
+            ["startInitDistribution", [distributionStateDir + "/eligible.csv", distributorAccount, tokenId, tokenSourceAccount, testnetRpc, expiryUnix, recoveryAddress], "INIT_OK", "Eligibility list ready", "initDistribution"],
             ["startFund", [airdropName, fundAmount], "FUND_OK", "Distribution pool funded", "fund"],
             ["startCheckEligibility", [airdropName, distributionStateDir + "/bundle.json", distributionStateDir + "/wallet.seed", distributionStateDir + "/shielded_destination.json"], "ELIGIBILITY_OK", "Checking claim eligibility", "checkEligibility"],
             ["startProve", [airdropName, distributionStateDir + "/bundle.json", distributionStateDir + "/wallet.seed", distributionStateDir + "/shielded_destination.json"], "PROVE_LOCAL_OK", "Generating your private proof", "prove"],
             ["startVerify", [airdropName, distributionStateDir + "/proof.json"], "VERIFY_OK", "Proof verified", "verify"],
-            ["startClaim", [airdropName, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Tokens delivered", "claim"]
+            ["startClaim", [airdropName, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Delivering tokens", "claim"]
         ]
         Qt.callLater(runNextSampleStep)
         return true
@@ -1267,7 +1504,7 @@ Item {
             ["startCheckEligibility", [airdrop, claimBundlePath(), distributionStateDir + "/wallet.seed", destinationPacket], "ELIGIBILITY_OK", "Checking claim eligibility", "checkEligibility"],
             ["startProve", [airdrop, claimBundlePath(), distributionStateDir + "/wallet.seed", destinationPacket], "PROVE_LOCAL_OK", "Generating your private proof", "prove"],
             ["startVerify", [airdrop, distributionStateDir + "/proof.json"], "VERIFY_OK", "Proof verified", "verify"],
-            ["startClaim", [airdrop, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Tokens delivered", "claim"]
+            ["startClaim", [airdrop, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Delivering tokens", "claim"]
         ]
         Qt.callLater(runNextSampleStep)
         return true
@@ -1335,6 +1572,26 @@ Item {
         }
     }
 
+    Timer {
+        id: claimPageRefreshTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            var ok = root.refreshClaimPage()
+            var recoverable = root.claimantTokenBalanceError.indexOf("client module is not loaded") !== -1
+                || root.claimantTokenBalanceError.indexOf("Invalid response") !== -1
+                || root.claimantTokenBalanceError.indexOf("local DistributionX helper") !== -1
+            if (!ok && recoverable && root.screen === "claim" && !root.sampleRunning && root.claimPageRefreshAttempts < 90) {
+                root.claimPageRefreshAttempts += 1
+                interval = 1000
+                restart()
+                return
+            }
+            root.claimPageRefreshAttempts = 0
+            interval = 500
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         color: root.theme.bg
@@ -1358,6 +1615,9 @@ Item {
         onLoaded: {
             if (item && item.hasOwnProperty("appRoot")) {
                 item.appRoot = root
+            }
+            if (root.screen === "claim") {
+                root.scheduleClaimPageRefresh()
             }
         }
     }
