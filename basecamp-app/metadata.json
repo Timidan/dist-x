@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "DistributionX private allowlist distribution",
   "view": "src/qml/Main.qml",
+  "icon": "icons/icon.png",
   "category": "tools",
   "dependencies": ["distributionx_client"]
 }
