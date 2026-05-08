@@ -1455,8 +1455,8 @@ fn mint_token(name: &str, total_supply: u64, offline: bool) -> CliResult<()> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let last_line = stdout
         .lines()
-        .filter(|line| !line.trim().is_empty())
-        .last()
+        .rev()
+        .find(|line| !line.trim().is_empty())
         .ok_or_else(|| boxed_err("E_DISTRIBUTIONX_TOKEN_MINT_NO_OUTPUT".to_string()))?;
     println!("{last_line}");
     Ok(())

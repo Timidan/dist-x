@@ -50,6 +50,8 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
       - name: Test
+        env:
+          RISC0_SKIP_BUILD: "1"
         run: cargo test -p distributionx-bindings -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit -p distributionx-program -p distributionx-client -p distributionx-cli -p distributionx-relayer-ref
       - name: Check generated LEZ client bindings
         run: |
@@ -59,6 +61,8 @@ jobs:
           diff -ru "$tmpdir" src/generated
       - name: Guest-facing no-default-features check
         run: cargo check -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit --no-default-features
+      - name: Install Risc0 toolchain
+        run: bash scripts/risc0-setup.sh
       - name: Build Risc0 method
         run: cargo build -p example_program_deployment_methods
       - name: Clippy
@@ -88,6 +92,8 @@ jobs:
       - name: Run Basecamp QML integration tests
         working-directory: basecamp-app
         run: nix build -L .#integration-test
+      - name: Install Risc0 toolchain
+        run: bash scripts/risc0-setup.sh
       - name: Verify LGX packaging
         run: bash scripts/package.sh
 
@@ -97,6 +103,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Risc0 toolchain
+        run: bash scripts/risc0-setup.sh
       - name: Run testnet demo
         env:
           LEZ_RPC_URL: ${{ secrets.LEZ_RPC_URL }}
@@ -128,6 +136,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Risc0 toolchain
+        run: bash scripts/risc0-setup.sh
       - name: Optional LEZ sequencer setup
         env:
           DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND: ${{ secrets.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND || vars.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND }}

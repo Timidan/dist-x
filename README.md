@@ -58,6 +58,16 @@ Most reviewers only need these commands. Other scripts are helpers called by the
 
 Helper scripts used by the commands above: `deploy.sh`, `local-submit.sh`, `local-token-mint.sh`, `wallet-bootstrap.sh`, `install-reviewer-fixture.sh`, `extract-cu.sh`, and `prepare-modules.sh`.
 
+## Local CI Preflight
+
+Before pushing, run the push/PR checks GitHub Actions will run:
+
+```bash
+bash scripts/ci-local.sh all
+```
+
+Use `bash scripts/ci-local.sh quick` for a fast preflight, `bash scripts/ci-local.sh rust` for the Rust job, and `bash scripts/ci-local.sh logos` for the Nix/LGX job. The script checks that files required by CI, including `vendor/nssa_core/` and `fixtures/reviewer-fast-path/`, are tracked so GitHub Actions can see them.
+
 ## Fresh Clone Setup
 
 Required tools: `bash`, `git`, `curl`, `jq`, Docker, Rust stable with `cargo`, Nix with flakes enabled, and `lgs` for the Logos/LEZ scaffold.

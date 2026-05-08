@@ -65,6 +65,9 @@ esac
 
 mkdir -p "${OUT_DIR}"
 
+log "Checking Risc0 toolchain"
+bash scripts/risc0-setup.sh
+
 log "Building Rust CLI (${CARGO_PROFILE})"
 cargo build -p distributionx-cli "${cargo_args[@]}"
 export DISTRIBUTIONX_CLI="${cli_path}"

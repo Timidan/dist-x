@@ -373,6 +373,7 @@ mod distributionx {
     }
 
     #[instruction]
+    #[allow(clippy::too_many_arguments)]
     pub fn claim(
         #[account(mut, pda = [literal("airdrop"), arg("airdrop_id")])] airdrop: AccountWithMetadata,
         #[account(init, pda = [literal("nullifier"), arg("airdrop_id"), arg("nullifier")])]
@@ -463,6 +464,7 @@ mod distributionx {
     }
 
     #[instruction]
+    #[allow(clippy::too_many_arguments)]
     pub fn claim_private(
         #[account(mut, pda = [literal("airdrop"), arg("airdrop_id")])] airdrop: AccountWithMetadata,
         #[account(init, pda = [literal("nullifier"), arg("airdrop_id"), arg("nullifier")])]
