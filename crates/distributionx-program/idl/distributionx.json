@@ -1,0 +1,272 @@
+{
+  "accounts": [],
+  "errors": [
+    {"code": 1, "name": "E_AIRDROP_CLOSED", "message": "airdrop is not active"},
+    {"code": 2, "name": "E_AIRDROP_ID_MISMATCH", "message": "journal airdrop_id does not match claim context"},
+    {"code": 3, "name": "E_ROOT_MISMATCH", "message": "journal merkle_root does not match airdrop"},
+    {"code": 4, "name": "E_BUCKET_OUT_OF_RANGE", "message": "journal bucket_id is outside bucket_table"},
+    {"code": 5, "name": "E_BAD_PROOF", "message": "receipt verification failed"},
+    {"code": 6, "name": "E_ALREADY_CLAIMED", "message": "nullifier record already exists"},
+    {"code": 7, "name": "E_VAULT_INSUFFICIENT", "message": "vault balance is below claim amount"},
+    {"code": 8, "name": "E_TRANSFER_FAILED", "message": "token transfer failed"},
+    {"code": 9, "name": "E_DISTRIBUTOR_ONLY", "message": "caller is not the distributor"},
+    {"code": 10, "name": "E_TREE_DEPTH_INVALID", "message": "tree depth is unsupported"},
+    {"code": 11, "name": "E_BUCKET_TABLE_INVALID", "message": "bucket table is empty or too large"},
+    {"code": 12, "name": "E_BUCKET_AMOUNT_ZERO", "message": "bucket amount cannot be zero"},
+    {"code": 13, "name": "E_IMAGE_ID_MISMATCH", "message": "Risc0 image id does not match the DistributionX verifier"},
+    {"code": 14, "name": "E_BAD_DESTINATION_COMMITMENT", "message": "claim destination commitment is not canonical"},
+    {"code": 15, "name": "E_OVERFLOW", "message": "integer overflow"},
+    {"code": 16, "name": "E_EXPIRY_INVALID", "message": "expiry is not in the future"},
+    {"code": 17, "name": "E_NULLIFIER_MISMATCH", "message": "journal nullifier does not match claim context"}
+  ],
+  "instructions": [
+    {
+      "accounts": [
+        {
+          "init": true,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": true,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "distributor",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+        {"name": "token_id", "type": {"array": ["u8", 32]}},
+        {"name": "merkle_root", "type": {"array": ["u8", 32]}},
+        {"name": "tree_depth", "type": "u8"},
+        {"name": "bucket_table_hash", "type": {"array": ["u8", 32]}},
+        {"name": "bucket_table", "type": {"vec": "u64"}},
+        {"name": "image_id", "type": {"array": ["u8", 32]}},
+        {"name": "expiry_unix", "type": "i64"},
+        {"name": "recovery_address", "type": {"array": ["u8", 32]}},
+        {"name": "now_unix", "type": "i64"}
+      ],
+      "name": "init_airdrop"
+    },
+    {
+      "accounts": [
+        {
+          "init": false,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "distributor",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+        {"name": "amount", "type": "u64"},
+        {"name": "now_unix", "type": "i64"}
+      ],
+      "name": "fund"
+    },
+    {
+      "accounts": [
+        {
+          "init": false,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": true,
+          "name": "nullifier_record",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "nullifier"},
+              {"kind": "arg", "path": "airdrop_id"},
+              {"kind": "arg", "path": "nullifier"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "recipient",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+        {"name": "nullifier", "type": {"array": ["u8", 32]}},
+        {"name": "receipt_bytes", "type": {"vec": "u8"}},
+        {"name": "now_unix", "type": "i64"}
+      ],
+      "name": "claim"
+    },
+    {
+      "accounts": [
+        {
+          "init": false,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": true,
+          "name": "nullifier_record",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "nullifier"},
+              {"kind": "arg", "path": "airdrop_id"},
+              {"kind": "arg", "path": "nullifier"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": true,
+          "name": "recipient",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+        {"name": "bucket_id", "type": "u8"},
+        {"name": "nullifier", "type": {"array": ["u8", 32]}},
+        {"name": "claim_destination_commitment", "type": {"array": ["u8", 32]}},
+        {"name": "claimant_address", "type": {"array": ["u8", 32]}},
+        {"name": "salt", "type": {"array": ["u8", 32]}},
+        {"name": "claim_sig", "type": {"vec": "u8"}},
+        {"name": "merkle_siblings", "type": {"vec": {"array": ["u8", 32]}}},
+        {"name": "merkle_path_is_right", "type": {"vec": "bool"}},
+        {"name": "now_unix", "type": "i64"}
+      ],
+      "name": "claim_private"
+    },
+    {
+      "accounts": [
+        {
+          "init": false,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "recovery",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "distributor",
+          "signer": true,
+          "writable": false
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}}
+      ],
+      "name": "close"
+    }
+  ],
+  "name": "distributionx",
+  "types": [],
+  "version": "0.1.0"
+}

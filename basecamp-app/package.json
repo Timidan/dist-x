@@ -1,0 +1,9 @@
+{
+  "name": "distributionx-basecamp-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/smoke.mjs --ci ./tests/run-standalone-offscreen.sh && node tests/distributor_setup.mjs --ci ./tests/run-standalone-offscreen.sh && DISTRIBUTIONX_DEV_UI=1 node tests/sample_e2e.mjs --ci ./tests/run-standalone-offscreen.sh && DISTRIBUTIONX_DEV_UI=1 node tests/claim_errors.mjs --ci ./tests/run-standalone-offscreen.sh"
+  }
+}

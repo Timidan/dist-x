@@ -1,0 +1,26 @@
+[package]
+name = "distributionx-tree"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["host"]
+host = [
+    "dep:chacha20poly1305",
+    "dep:hkdf",
+    "dep:rand_core",
+    "dep:x25519-dalek",
+    "distributionx-wallet-ref/host",
+]
+
+[dependencies]
+distributionx-wallet-ref = { path = "../distributionx-wallet-ref", default-features = false }
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+chacha20poly1305 = { workspace = true, optional = true }
+hkdf = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
+x25519-dalek = { workspace = true, optional = true }

@@ -1,0 +1,161 @@
+name: distributionx-testnet-ready
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_testnet_e2e:
+        description: Run the configured LEZ testnet proof and submit demo.
+        required: false
+        default: true
+        type: boolean
+      run_localnet_e2e:
+        description: Run the guarded standalone LEZ sequencer E2E.
+        required: false
+        default: false
+        type: boolean
+      allow_localnet_e2e_skip:
+        description: Allow the localnet job to exit skipped when no sequencer is configured.
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  scripts:
+    name: Bash syntax + helper-script lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on every shell script under scripts/
+        run: |
+          set -e
+          shopt -s nullglob
+          fail=0
+          for s in scripts/*.sh; do
+            if ! bash -n "$s"; then
+              echo "syntax error in $s" >&2
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Test
+        run: cargo test -p distributionx-bindings -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit -p distributionx-program -p distributionx-client -p distributionx-cli -p distributionx-relayer-ref
+      - name: Check generated LEZ client bindings
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          cargo run -q --manifest-path crates/lez-client-gen/Cargo.toml -- --idl-dir idl --out-dir "$tmpdir"
+          diff -ru "$tmpdir" src/generated
+      - name: Guest-facing no-default-features check
+        run: cargo check -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit --no-default-features
+      - name: Build Risc0 method
+        run: cargo build -p example_program_deployment_methods
+      - name: Clippy
+        env:
+          RISC0_SKIP_BUILD: "1"
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  logos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: Build Logos client module
+        working-directory: distributionx_client_module
+        run: nix build -L
+      - name: Run Logos client unit tests
+        working-directory: distributionx_client_module
+        run: nix build -L .#unit-tests
+      - name: Build Basecamp QML package
+        working-directory: basecamp-app
+        run: nix build -L
+      - name: Run Basecamp QML integration tests
+        working-directory: basecamp-app
+        run: nix build -L .#integration-test
+      - name: Verify LGX packaging
+        run: bash scripts/package.sh
+
+  testnet-e2e:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_testnet_e2e }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run testnet demo
+        env:
+          LEZ_RPC_URL: ${{ secrets.LEZ_RPC_URL }}
+          LEZ_DEPLOYER_WALLET: ${{ secrets.LEZ_DEPLOYER_WALLET }}
+          LEZ_DEPLOY_COMMAND: ${{ secrets.LEZ_DEPLOY_COMMAND }}
+          DISTRIBUTIONX_TOKEN_ID: ${{ secrets.DISTRIBUTIONX_TOKEN_ID || vars.DISTRIBUTIONX_TOKEN_ID }}
+          DISTRIBUTIONX_RECOVERY_ADDRESS: ${{ secrets.DISTRIBUTIONX_RECOVERY_ADDRESS || vars.DISTRIBUTIONX_RECOVERY_ADDRESS }}
+          DISTRIBUTIONX_INIT_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_INIT_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_FUND_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_FUND_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_RELAYER_URL: ${{ secrets.DISTRIBUTIONX_RELAYER_URL }}
+          DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_SERIALIZED_LEZ_TX: ${{ secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX || 'target/distributionx-testnet/claim.tx' }}
+          DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64: ${{ secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64 }}
+        run: bash scripts/e2e.sh testnet
+
+  localnet-e2e:
+    name: Standalone LEZ E2E (push/PR — skips when no sequencer configured)
+    # LP-0003 brief: "End-to-end integration tests run against a LEZ sequencer
+    # (standalone mode) and are included in CI." We always run this job; if the
+    # repo doesn't have DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND configured,
+    # scripts/e2e.sh ci-localnet exits skipped (status 0) so green-on-default-branch isn't
+    # blocked by infra-only configuration. Manual workflow_dispatch with
+    # allow_localnet_e2e_skip=false enforces a hard fail.
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_localnet_e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Optional LEZ sequencer setup
+        env:
+          DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND: ${{ secrets.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND || vars.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND }}
+        run: |
+          if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND}" ]]; then
+            bash -lc "${DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND}"
+          else
+            echo "No DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND configured."
+          fi
+      - name: Run localnet sequencer demo
+        env:
+          # On push/PR runs and on workflow_dispatch with allow_localnet_e2e_skip,
+          # let scripts/e2e.sh ci-localnet exit skipped if no sequencer is configured. Operators
+          # who want a hard-fail run should call workflow_dispatch with
+          # allow_localnet_e2e_skip=false.
+          DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP: ${{ (github.event_name != 'workflow_dispatch' || inputs.allow_localnet_e2e_skip) && '1' || '0' }}
+          DISTRIBUTIONX_LEZ_SEQUENCER_BIN: ${{ vars.DISTRIBUTIONX_LEZ_SEQUENCER_BIN }}
+          DISTRIBUTIONX_LEZ_SEQUENCER_ARGS: ${{ vars.DISTRIBUTIONX_LEZ_SEQUENCER_ARGS }}
+          DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND: ${{ secrets.DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND || vars.DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND }}
+          DISTRIBUTIONX_LOCALNET_RPC_URL: ${{ vars.DISTRIBUTIONX_LOCALNET_RPC_URL || 'http://127.0.0.1:3040' }}
+          LEZ_DEPLOY_COMMAND: ${{ secrets.LEZ_DEPLOY_COMMAND_LOCALNET || vars.LEZ_DEPLOY_COMMAND_LOCALNET }}
+          LEZ_DEPLOYER_WALLET: ${{ secrets.LEZ_DEPLOYER_WALLET_LOCALNET || vars.LEZ_DEPLOYER_WALLET_LOCALNET }}
+          DISTRIBUTIONX_TOKEN_ID: ${{ secrets.DISTRIBUTIONX_TOKEN_ID_LOCALNET || vars.DISTRIBUTIONX_TOKEN_ID_LOCALNET }}
+          DISTRIBUTIONX_RECOVERY_ADDRESS: ${{ secrets.DISTRIBUTIONX_RECOVERY_ADDRESS_LOCALNET || vars.DISTRIBUTIONX_RECOVERY_ADDRESS_LOCALNET }}
+          DISTRIBUTIONX_INIT_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_INIT_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_INIT_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_INIT_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_FUND_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_FUND_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_FUND_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_FUND_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_RELAYER_URL: ${{ secrets.DISTRIBUTIONX_RELAYER_URL_LOCALNET || vars.DISTRIBUTIONX_RELAYER_URL_LOCALNET || 'localnet' }}
+          DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND }}
+          DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64: ${{ secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64_LOCALNET || secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64 }}
+        run: bash scripts/e2e.sh ci-localnet

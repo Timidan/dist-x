@@ -1,0 +1,82 @@
+{
+  "fixture": "reviewer-fast-path",
+  "claimant_count": 10,
+  "admin": {
+    "account": "Public/9cb199492e0083189afc286a3a57385fa4a020510de65ff06940db872746f920",
+    "public_key_hex": "9cb199492e0083189afc286a3a57385fa4a020510de65ff06940db872746f920",
+    "seed_hex": "68679a421392a32beacf2f8fd859cdf6033d94f8587ff12620835acc7ee057e0",
+    "seed_path": "fixtures/reviewer-fast-path/admin.seed"
+  },
+  "claimants": [
+    {
+      "account": "Public/db04245ea9435a886dec01f317166af0290b37624517756ef366003f6f45ab71",
+      "index": 1,
+      "public_key_hex": "db04245ea9435a886dec01f317166af0290b37624517756ef366003f6f45ab71",
+      "seed_hex": "036b283c7dc8c5518edf25a6509b3084dfbf4bfbbb76ffa3221342b301f6d5e1",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-01.seed"
+    },
+    {
+      "account": "Public/1405d3a934c43d1dbb90245ac88dcd917d026cf765ce3a0c44f9656f5b5c97af",
+      "index": 2,
+      "public_key_hex": "1405d3a934c43d1dbb90245ac88dcd917d026cf765ce3a0c44f9656f5b5c97af",
+      "seed_hex": "6334f89c352b83ac16726ec0afc98130c6dff8937046efd215ae13833497abbd",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-02.seed"
+    },
+    {
+      "account": "Public/98e537eb2174dfe38fdf66170648bb64c003e9afa39c3033dd3bf2009937a2a4",
+      "index": 3,
+      "public_key_hex": "98e537eb2174dfe38fdf66170648bb64c003e9afa39c3033dd3bf2009937a2a4",
+      "seed_hex": "73348696f342cf7a0837ccc1d9b3a6f2f5902677db118a5d3d28aca825184c22",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-03.seed"
+    },
+    {
+      "account": "Public/54e847d0e9c29c05c79881ebcf51c3f64b3e6177d4617209173c01061a198b47",
+      "index": 4,
+      "public_key_hex": "54e847d0e9c29c05c79881ebcf51c3f64b3e6177d4617209173c01061a198b47",
+      "seed_hex": "b15e3f570d958d929e87aa27569cc91a54e00897a25a24b9e4857fb44f5b05aa",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-04.seed"
+    },
+    {
+      "account": "Public/d1bc01ac6bb6da5048ab28f8a2ac32bfda2c58397bf82b3c6671d039184bef18",
+      "index": 5,
+      "public_key_hex": "d1bc01ac6bb6da5048ab28f8a2ac32bfda2c58397bf82b3c6671d039184bef18",
+      "seed_hex": "c0f57135c32ac8ded83a9ea70d4ff70892220c01d7ddb18b4f7bbbad58577b86",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-05.seed"
+    },
+    {
+      "account": "Public/b65d52ce15a725465ae4c7c89a1d298f3a65ee7fc911e34bccf73e209a085f17",
+      "index": 6,
+      "public_key_hex": "b65d52ce15a725465ae4c7c89a1d298f3a65ee7fc911e34bccf73e209a085f17",
+      "seed_hex": "96afe73356dd760b0f44135b6c0f7152114374dac2170c922245248c9ce96e6e",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-06.seed"
+    },
+    {
+      "account": "Public/2c3bdba33400db6f894b3f8549cf7d86b3f7fcd98847de7e7f546c2c96a79d56",
+      "index": 7,
+      "public_key_hex": "2c3bdba33400db6f894b3f8549cf7d86b3f7fcd98847de7e7f546c2c96a79d56",
+      "seed_hex": "528d65ac133dae77c2d906d412b8a36fb2761af8d6b8add67d39cdbbe0c4fd4d",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-07.seed"
+    },
+    {
+      "account": "Public/cf0e9a7bcc4d621c7934616931dc922277c056caa69e1643899a7526d1fc2e7b",
+      "index": 8,
+      "public_key_hex": "cf0e9a7bcc4d621c7934616931dc922277c056caa69e1643899a7526d1fc2e7b",
+      "seed_hex": "df1490755bdd35bb95c80b016f816fcab00fddcdca15a04c93915a4cd406d99a",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-08.seed"
+    },
+    {
+      "account": "Public/23c1dc4e864854fc8594d402c25d1f2386ebab07b842371f0835832526d4e3cf",
+      "index": 9,
+      "public_key_hex": "23c1dc4e864854fc8594d402c25d1f2386ebab07b842371f0835832526d4e3cf",
+      "seed_hex": "18efce02e45b4c8a7bf6683bfadb9c35ef9d248fcb340b5126716a3e07143666",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-09.seed"
+    },
+    {
+      "account": "Public/cacaba320a0a2a6ff8495893f5ab702be64900065708a6495bb520cbeed2e977",
+      "index": 10,
+      "public_key_hex": "cacaba320a0a2a6ff8495893f5ab702be64900065708a6495bb520cbeed2e977",
+      "seed_hex": "668d3d79a21c35354b80007a584b2d13efc8262c94f3a8e0120a96f9e9b9598f",
+      "seed_path": "fixtures/reviewer-fast-path/claimants/claimant-10.seed"
+    }
+  ]
+}

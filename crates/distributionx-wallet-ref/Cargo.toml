@@ -1,0 +1,46 @@
+[package]
+name = "distributionx-wallet-ref"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["host"]
+# Enables FFI-backed crypto, AEAD decrypt, OS keychain storage, and BIP-39 import.
+# Disable for risc0-zkvm guest builds where libsodium / keyring cannot link.
+host = [
+    "dep:anyhow",
+    "dep:bip39",
+    "dep:chacha20poly1305",
+    "dep:hkdf",
+    "dep:keyring",
+    "dep:libsodium-sys-stable",
+    "dep:rand_core",
+    "dep:secrecy",
+    "dep:x25519-dalek",
+]
+
+[dependencies]
+ed25519-dalek.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+anyhow = { workspace = true, optional = true }
+bip39 = { workspace = true, optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
+hkdf = { workspace = true, optional = true }
+keyring = { workspace = true, optional = true }
+libsodium-sys-stable = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
+x25519-dalek = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "bundle_decrypt_1k"
+harness = false
+required-features = ["host"]

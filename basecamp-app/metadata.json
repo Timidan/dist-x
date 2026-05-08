@@ -1,0 +1,9 @@
+{
+  "name": "distributionx",
+  "type": "ui_qml",
+  "version": "0.1.0",
+  "description": "DistributionX private allowlist distribution",
+  "view": "src/qml/Main.qml",
+  "category": "tools",
+  "dependencies": ["distributionx_client"]
+}

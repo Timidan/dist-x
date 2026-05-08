@@ -1,0 +1,53 @@
+target/
+**/target/
+result
+result-*
+**/result
+**/result-*
+Cargo.lock.bak
+.env
+.env.*
+!.env.example
+.env.local
+.scaffold
+.scaffold-setup.log
+vendor/
+.superpowers/
+.vscode/
+.codex
+error.log
+*.crdownload
+rocksdb/
+bedrock_signing_key
+
+# Local tooling output kept out of published sources
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+.cursor/
+.mcp.json
+
+# Scratch audit artifacts from local agent runs
+docs/run-logs/
+**/docs/run-logs/
+docs/superpowers/
+
+# Submission docs kept out by default except for bounty-required artifacts
+docs/
+!docs/
+docs/*
+!docs/WRITEUP.md
+!docs/bench/
+docs/bench/*
+!docs/run-logs/
+docs/run-logs/*
+!docs/run-logs/deployment/
+docs/run-logs/deployment/*
+!docs/run-logs/deployment/standalone-lez-real-proof-2026-05-06.json
+!docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json
+# Upstream issue drafts stay local-only; file real GitHub issues instead.
+solutions/
+!solutions/
+solutions/*
+!solutions/DistributionX.md

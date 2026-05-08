@@ -1,0 +1,233 @@
+# DistributionX
+
+DistributionX is a private allowlist airdrop for the Logos Execution Zone (LEZ). A distributor publishes only a Merkle root on-chain. A claimant proves membership with a real Risc0 receipt and claims to a shielded destination commitment without revealing the eligible address, salt, signature, or Merkle path in the public journal.
+
+Architecture diagram: [DistributionX.system-architecture.excalidraw](DistributionX.system-architecture.excalidraw).
+
+## Bounty Coverage
+
+| Requirement | Evidence |
+|---|---|
+| LEZ program in Rust/SPEL | `crates/distributionx-program/`, `methods/guest/src/bin/distributionx.rs` |
+| SPEL IDL | `idl/distributionx.json`, `crates/distributionx-program/idl/distributionx.json` |
+| Risc0 proof stack | `methods/`, `crates/distributionx-circuit/`, `distributionx-cli prove` |
+| Eligibility committed without public addresses | `init_airdrop` stores `merkle_root` and `bucket_table_hash`; encrypted rows stay in `bundle.json` |
+| Recipient claims without revealing eligible address | Risc0 public journal contains `airdrop_id`, `merkle_root`, `bucket_id`, `nullifier`, `claim_destination_commitment` |
+| One claim per recipient | Nullifier PDA and `E_ALREADY_CLAIMED`; tests in `crates/distributionx-program/tests/` |
+| Threat model and privacy model | [docs/WRITEUP.md](docs/WRITEUP.md) |
+| Client SDK / CLI | `crates/distributionx-client/`, `crates/distributionx-cli/` |
+| Logos module SDK | `distributionx_client_module/` |
+| Basecamp GUI and LGX assets | `basecamp-app/`, `bash scripts/package.sh` |
+| Deterministic error codes | `crates/distributionx-program/src/errors.rs`, `idl/distributionx.json` |
+| Retry safety after failed claim | `atomicity_failed_transfer_rolls_back_nullifier.rs`, `claim_atomicity.rs` |
+| Proof time and LEZ operation cost | [docs/bench/REPORT.md](docs/bench/REPORT.md) |
+| E2E local sequencer demo with `RISC0_DEV_MODE=0` | `bash scripts/e2e.sh private-localnet` |
+| CI coverage | `.github/workflows/distributionx-testnet-ready.yml` |
+| License | `LICENSE-MIT`, `LICENSE-APACHE` |
+| FURPS self-assessment and upstream issues | [solutions/DistributionX.md](solutions/DistributionX.md) |
+
+The previous adoption target for three outside-team distributions is out of scope for this submission. The remaining non-repo artifacts are the narrated demo video URL and the GitHub default-branch CI URL after pushing.
+
+## Recorded Evidence
+
+Standalone LEZ shielded/private real-proof run:
+
+| Field | Value |
+|---|---|
+| Evidence file | `docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json` |
+| RPC | `http://127.0.0.1:3040` |
+| Program id | `e8c822f38f5c7eee2e9dd826b414febe6a78ccb98cbfe9a708fd800b23f59d01` |
+| Method image id | `ceb38078c8af34dcfd31b3cb81f9d653a761c49d50f15b83febd0e136926baa6` |
+| Deploy tx | `666a39c783a5a96e613e956f5ec1e9211aae5d846616313d642c86bf4a726f48` |
+| E2E result | `DISTRIBUTIONX_E2E_PASS` |
+| Proof mode | `risc0-zkvm-receipt`, `RISC0_DEV_MODE=0` |
+| Flow | deploy, init, fund, prove, verify, private claim, duplicate rejection, close |
+
+CU values are in [docs/bench/REPORT.md](docs/bench/REPORT.md): init `444366`, fund `448211`, private claim `786876`, close `505564`.
+
+## Reviewer Entry Points
+
+Most reviewers only need these commands. Other scripts are helpers called by these entry points.
+
+| Goal | Command | Notes |
+|---|---|---|
+| Full CLI evidence run | `bash scripts/standalone-sequencer.sh restart --clean && bash scripts/e2e.sh private-localnet` | Deploys, initializes, funds, proves with `RISC0_DEV_MODE=0`, verifies, claims, rejects duplicate claim, and closes. |
+| Launch Basecamp reviewer app | `bash scripts/start-basecamp.sh --reset-localnet --clean-user-dir` | Builds LGX packages, resets localnet/local state, installs the app, prints `RISC0_DEV_MODE=0`, and opens Basecamp. |
+| Build package artifacts only | `bash scripts/package.sh` | Produces and verifies `target/lgx/distributionx-client.lgx` and `target/lgx/DistributionX-ui.lgx`. |
+| Check local environment | `bash scripts/preflight.sh` | Verifies expected local tools, wallet, RPC, Basecamp, and LGX tooling. |
+
+Helper scripts used by the commands above: `deploy.sh`, `local-submit.sh`, `local-token-mint.sh`, `wallet-bootstrap.sh`, `install-reviewer-fixture.sh`, `extract-cu.sh`, and `prepare-modules.sh`.
+
+## Fresh Clone Setup
+
+Required tools: `bash`, `git`, `curl`, `jq`, Docker, Rust stable with `cargo`, Nix with flakes enabled, and `lgs` for the Logos/LEZ scaffold.
+
+```bash
+git clone <repo-url> dist-x
+cd dist-x
+cp .env.example .env.local
+set -a
+source .env.local
+set +a
+lgs setup
+```
+
+Generate the reviewer binaries:
+
+```bash
+cargo build --release -p distributionx-cli
+cargo build -p distributionx-program --features spel-idl
+cargo build -p example_program_deployment_methods
+```
+
+This creates the CLI at `target/release/distributionx-cli` and the LEZ program binary at `target/riscv-guest/example_program_deployment_methods/example_program_deployment_programs/riscv32im-risc0-zkvm-elf/release/distributionx.bin`. `scripts/deploy.sh --localnet` also rebuilds these before deployment.
+
+Start a clean local sequencer:
+
+```bash
+bash scripts/standalone-sequencer.sh restart --clean
+```
+
+Bootstrap a funded local LEZ signer:
+
+```bash
+export LEZ_RPC_URL=http://127.0.0.1:3040
+export LEZ_DEPLOYER_WALLET="$(bash scripts/wallet-bootstrap.sh)"
+```
+
+Set local submit hooks:
+
+```bash
+export DISTRIBUTIONX_STATE_DIR=target/distributionx-testnet
+export DISTRIBUTIONX_INIT_SUBMIT_COMMAND='bash scripts/local-submit.sh init'
+export DISTRIBUTIONX_FUND_SUBMIT_COMMAND='bash scripts/local-submit.sh fund'
+export DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND='bash scripts/local-submit.sh claim'
+export DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND='bash scripts/local-submit.sh close'
+export DISTRIBUTIONX_RELAYER_URL=localnet
+export DISTRIBUTIONX_SERIALIZED_LEZ_TX=target/distributionx-testnet/claim.tx
+export DISTRIBUTIONX_USE_PRIVATE_CLAIM=1
+```
+
+Run CLI/localnet preflight:
+
+```bash
+bash scripts/preflight.sh --no-basecamp
+```
+
+Run `bash scripts/preflight.sh` before Basecamp packaging or LGX verification.
+
+Install the tracked reviewer fixture when you want deterministic local seeds instead of generating fresh sample keys:
+
+```bash
+bash scripts/install-reviewer-fixture.sh
+```
+
+## Scratch Creation And Claim Test
+
+This is the shortest reviewer path from a fresh clone after `lgs setup`:
+
+```bash
+set -a
+source .env.local
+set +a
+bash scripts/standalone-sequencer.sh restart --clean
+bash scripts/e2e.sh private-localnet
+```
+
+The E2E script installs the tracked reviewer fixture, builds `target/release/distributionx-cli` if it is missing, deploys the LEZ program, initializes the airdrop, funds the vault, proves with `RISC0_DEV_MODE=0`, verifies the receipt, submits a private claim, rejects a duplicate claim with `E_ALREADY_CLAIMED`, closes the airdrop, and prints `DISTRIBUTIONX_E2E_PASS`. Logs are written to `docs/run-logs/e2e/`.
+
+By default localnet E2E uses `fixtures/reviewer-fast-path/`. Set `DISTRIBUTIONX_USE_REVIEWER_FIXTURE=0` to generate a fresh fixture with `distributionx-cli sample-fixture`.
+
+## CLI Demo
+
+Reviewer path:
+
+```bash
+bash scripts/demo.sh
+```
+
+Shielded/private evidence path:
+
+```bash
+bash scripts/standalone-sequencer.sh restart --clean
+bash scripts/e2e.sh private-localnet
+```
+
+The E2E run deploys, initializes, funds, proves with `RISC0_DEV_MODE=0`, verifies, claims, rejects a duplicate claim, closes, and writes logs under `docs/run-logs/e2e/`.
+
+Manual CLI sequence:
+
+```bash
+export DISTRIBUTIONX_CLI="${DISTRIBUTIONX_CLI:-$(pwd)/target/release/distributionx-cli}"
+export DISTRIBUTIONX_AIRDROP_NAME="${DISTRIBUTIONX_AIRDROP_NAME:-demo-airdrop}"
+export DISTRIBUTIONX_FUND_AMOUNT="${DISTRIBUTIONX_FUND_AMOUNT:-3000}"
+export DISTRIBUTIONX_EXPIRY_UNIX="${DISTRIBUTIONX_EXPIRY_UNIX:-1893456000}"
+: "${LEZ_DEPLOYER_WALLET:?set a funded local LEZ signer}"
+: "${DISTRIBUTIONX_RECOVERY_ADDRESS:?set an initialized recovery account}"
+
+cargo build --release -p distributionx-cli
+bash scripts/install-reviewer-fixture.sh
+export DISTRIBUTIONX_TOKEN_ID="$("$DISTRIBUTIONX_CLI" token-id --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" | jq -r .token_id)"
+bash scripts/deploy.sh --localnet
+"$DISTRIBUTIONX_CLI" init --name "$DISTRIBUTIONX_AIRDROP_NAME" --csv "$DISTRIBUTIONX_STATE_DIR/eligible.csv" --distributor "$LEZ_DEPLOYER_WALLET" --token "$DISTRIBUTIONX_TOKEN_ID" --rpc "$LEZ_RPC_URL" --expiry "$DISTRIBUTIONX_EXPIRY_UNIX" --recovery "$DISTRIBUTIONX_RECOVERY_ADDRESS"
+"$DISTRIBUTIONX_CLI" fund --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --amount "$DISTRIBUTIONX_FUND_AMOUNT"
+RISC0_DEV_MODE=0 "$DISTRIBUTIONX_CLI" prove --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --bundle "$DISTRIBUTIONX_STATE_DIR/bundle.json" --wallet "$DISTRIBUTIONX_STATE_DIR/wallet.seed" --destination-packet "$DISTRIBUTIONX_STATE_DIR/shielded_destination.json"
+"$DISTRIBUTIONX_CLI" verify --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --proof "$DISTRIBUTIONX_STATE_DIR/proof.json"
+"$DISTRIBUTIONX_CLI" claim --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" --proof "$DISTRIBUTIONX_STATE_DIR/proof.json" --relayer "$DISTRIBUTIONX_RELAYER_URL" --serialized-lez-tx "$DISTRIBUTIONX_SERIALIZED_LEZ_TX"
+```
+
+## Basecamp
+
+```bash
+bash scripts/start-basecamp.sh --reset-localnet --clean-user-dir
+```
+
+The launcher builds LGX packages, restarts the local sequencer with clean state, resets `target/distributionx-testnet/`, installs the app into `target/basecamp-user/`, loads `.env.local`, sets `RISC0_DEV_MODE=0`, and launches Basecamp.
+
+Package artifacts:
+
+```bash
+bash scripts/e2e.sh package
+```
+
+| Output | Contains |
+|---|---|
+| `target/lgx/distributionx-client.lgx` | Logos core module plus `distributionx-cli` |
+| `target/lgx/DistributionX-ui.lgx` | Basecamp QML app |
+
+## Multi-claimant Localnet
+
+```bash
+cargo run --release -p distributionx-cli -- export-claim-package \
+  --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" \
+  --out "$DISTRIBUTIONX_STATE_DIR/claim-package.json"
+
+export DISTRIBUTIONX_STATE_DIR=target/distributionx-claimant-1
+cargo run --release -p distributionx-cli -- import-claim-package \
+  --package target/distributionx-testnet/claim-package.json \
+  --out-dir "$DISTRIBUTIONX_STATE_DIR"
+cargo run --release -p distributionx-cli -- create-wallet --out-dir "$DISTRIBUTIONX_STATE_DIR"
+RISC0_DEV_MODE=0 cargo run --release -p distributionx-cli -- prove \
+  --airdrop "$DISTRIBUTIONX_AIRDROP_NAME" \
+  --bundle "$DISTRIBUTIONX_STATE_DIR/bundles/$DISTRIBUTIONX_AIRDROP_NAME.json" \
+  --wallet "$DISTRIBUTIONX_STATE_DIR/wallet.seed" \
+  --destination-packet "$DISTRIBUTIONX_STATE_DIR/shielded_destination.json"
+```
+
+## Verification
+
+```bash
+cargo fmt --all -- --check
+cargo test -p distributionx-bindings -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit -p distributionx-program -p distributionx-client -p distributionx-cli -p distributionx-relayer-ref
+(tmpdir="$(mktemp -d)" && trap 'rm -rf "$tmpdir"' EXIT && cargo run -q --manifest-path crates/lez-client-gen/Cargo.toml -- --idl-dir idl --out-dir "$tmpdir" && diff -ru "$tmpdir" src/generated)
+cargo check -p distributionx-wallet-ref -p distributionx-tree -p distributionx-circuit --no-default-features
+cargo build -p example_program_deployment_methods
+RISC0_SKIP_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
+(cd distributionx_client_module && nix --extra-experimental-features 'nix-command flakes' build -L .#unit-tests)
+(cd basecamp-app && nix --extra-experimental-features 'nix-command flakes' build -L .#integration-test)
+bash scripts/package.sh
+```
+
+## License
+
+MIT or Apache-2.0.
