@@ -245,6 +245,7 @@ impl<'w> DistributionxClient<'w> {
             accounts.airdrop,
             accounts.nullifier_record,
             accounts.vault,
+            accounts.recipient,
         ];
         let signer_ids: Vec<AccountId> = vec![
         ];
