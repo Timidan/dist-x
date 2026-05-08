@@ -104,6 +104,10 @@ ensure_risc0_toolchain() {
 
 run_rust_job() {
   log "job rust"
+  if command -v rustup >/dev/null 2>&1; then
+    log "syncing stable Rust toolchain to match dtolnay/rust-toolchain@stable"
+    rustup update stable
+  fi
   log "cargo fmt --all -- --check"
   cargo fmt --all -- --check
 

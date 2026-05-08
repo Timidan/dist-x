@@ -18,6 +18,7 @@ use rand::RngCore;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
@@ -1756,7 +1757,7 @@ fn upsert_registry(state: &LocalAirdropState) -> CliResult<()> {
     }
     registry
         .airdrops
-        .sort_by(|left, right| right.updated_at_unix.cmp(&left.updated_at_unix));
+        .sort_by_key(|entry| Reverse(entry.updated_at_unix));
     write_json(&registry_path(), &registry)
 }
 
