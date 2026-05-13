@@ -374,13 +374,11 @@ mod distributionx {
     }
 
     #[instruction]
-    #[allow(clippy::too_many_arguments)]
     pub fn claim(
         #[account(mut, pda = [literal("airdrop"), arg("airdrop_id")])] airdrop: AccountWithMetadata,
         #[account(init, pda = [literal("nullifier"), arg("airdrop_id"), arg("nullifier")])]
         nullifier_record: AccountWithMetadata,
         #[account(mut, pda = [literal("vault"), arg("airdrop_id")])] vault: AccountWithMetadata,
-        #[account(mut)] recipient: AccountWithMetadata,
         airdrop_id: [u8; 32],
         nullifier: [u8; 32],
         receipt_bytes: Vec<u8>,
@@ -426,12 +424,6 @@ mod distributionx {
                 "destination commitment must be non-zero",
             ));
         }
-        if account_id(&recipient) != journal.claim_destination_commitment {
-            return Err(program_error(
-                E_BAD_DESTINATION_COMMITMENT,
-                "recipient account does not match claim destination commitment",
-            ));
-        }
 
         let amount = state.bucket_table[journal.bucket_id as usize];
         let new_total_claimed = checked_add_u64(state.total_claimed, amount)?;
@@ -446,19 +438,17 @@ mod distributionx {
         let mut vault_post = vault.account;
         vault_post.balance = checked_sub_u128(vault_post.balance, u128::from(amount))?;
 
-        let mut recipient_post = recipient.account;
-        recipient_post.balance = checked_add_u128(recipient_post.balance, u128::from(amount))?;
-
         let nullifier_state = NullifierState {
             claimed_at: now_unix,
         };
+        let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
+        nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
         Ok(SpelOutput::execute(
             vec![
                 write_data(airdrop.account, &state)?,
-                write_data(nullifier_record.account, &nullifier_state)?,
+                nullifier_post,
                 vault_post,
-                recipient_post,
             ],
             vec![],
         ))

@@ -491,9 +491,23 @@ assert_marker prove "PROVE_LOCAL_OK"
 assert_marker prove "claim_destination_commitment"
 assert_marker prove '"risc0_real_proof":"OK"'
 
-if ! jq -e '.private_claim != null and .recipient_npk != null and .recipient_vpk != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
-  echo "claim did not produce a shielded private transaction" >&2
-  exit 1
+claim_private_flag="${DISTRIBUTIONX_USE_CLAIM_PRIVATE:-0}"
+claim_private_flag="${claim_private_flag#"${claim_private_flag%%[![:space:]]*}"}"
+claim_private_flag="${claim_private_flag%"${claim_private_flag##*[![:space:]]}"}"
+if [[ "${claim_private_flag}" =~ ^(1|true|yes|on)$ ]]; then
+  if ! jq -e '.private_claim != null and .recipient_npk != null and .recipient_vpk != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
+    echo "DISTRIBUTIONX_USE_CLAIM_PRIVATE is set but claim.tx is missing private_claim/recipient_npk/recipient_vpk" >&2
+    exit 1
+  fi
+else
+  if ! jq -e '.recipient_npk != null and .recipient_vpk != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
+    echo "claim did not produce a shielded destination packet (recipient_npk/recipient_vpk missing)" >&2
+    exit 1
+  fi
+  if jq -e '.private_claim != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
+    echo "claim.tx unexpectedly carries private_claim under the default receipt path" >&2
+    exit 1
+  fi
 fi
 
 if grep -q "claim_address" "${STATE_DIR}/proof.json"; then

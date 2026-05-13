@@ -13,7 +13,7 @@
 
 CU values for LP-0003 are captured per the brief by running an end-to-end demo against a LEZ sequencer in **standalone mode** (`scripts/standalone-sequencer.sh restart --clean`). The current LEZ RPC `getTransaction` response does not expose a receipt CU field, so the standalone helper instruments local LEZ Risc0 execution/proving cycle counts and writes them into the same receipt JSON files used by the table below. These values are local standalone LEZ cycle counters, not fields returned by public RPC receipts.
 
-Most-recent successful evidence: see [`docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json`](../run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json). That run was captured from a clean standalone LEZ sequencer and reached `DISTRIBUTIONX_E2E_PASS`: `INIT_OK`, `FUND_OK`, `PROVE_LOCAL_OK` with `risc0_real_proof:OK`, `VERIFY_OK` with `risc0_receipt_verify:verified`, on-chain private `CLAIM_OK`, local `E_ALREADY_CLAIMED` double-claim rejection, and on-chain `CLOSE_OK`.
+Most-recent successful evidence: see [`docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-13.json`](../run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-13.json). That run was captured from a clean standalone LEZ sequencer on the refactored `claim` path and reached `DISTRIBUTIONX_E2E_PASS`: `INIT_OK`, `FUND_OK`, `PROVE_LOCAL_OK` with `risc0_real_proof:OK`, `VERIFY_OK` with `risc0_receipt_verify:verified`, on-chain `CLAIM_OK` (receipt-based, credit on nullifier PDA), local `E_ALREADY_CLAIMED` double-claim rejection, and on-chain `CLOSE_OK`. The earlier 2026-05-06 run on the `claim_private` path is preserved at [`docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json`](../run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json) as historical evidence of the opt-in fallback path.
 
 The CU table below is regenerated in place by `scripts/extract-cu.sh` from `target/distributionx-testnet/receipts/<op>.json` files. `scripts/local-submit.sh` writes these receipt files automatically for `init`, `fund`, `claim`, and `close`. For manually captured receipts, keep the same schema:
 
@@ -21,13 +21,13 @@ The CU table below is regenerated in place by `scripts/extract-cu.sh` from `targ
 { "tx_id": "<hex>", "status": "OK|ERROR", "cu": <integer> }
 ```
 
-The claim row reports the LEZ public-execution cycle count for the `claim_private` instruction. Keep the raw receipt JSON files with the final submission so the CU field path is auditable.
+The claim row reports the LEZ public-execution cycle count for the `claim` instruction (receipt-based, witness-private). Keep the raw receipt JSON files with the final submission so the CU field path is auditable.
 
 <!-- BEGIN cu-table -->
 | Operation | Tx id | Receipt file | Status | CU |
 |---|---|---|---|---:|
-| `init_airdrop` on standalone LEZ | 9bb3264494e75daf6f6d5fd1b3c476d683d217ffada18088b166c5c9d2138d13 | `target/distributionx-testnet/receipts/init_airdrop.json` | OK | 444366 |
-| `fund` on standalone LEZ | bc6bc61e430aa90c8ec683f5f154ddc72db005d2b3590945955e2b73787c956a | `target/distributionx-testnet/receipts/fund.json` | OK | 448211 |
-| `claim_private` on standalone LEZ | 286b12208328c8d7e48b868e83cc3e1745a09622d392445679dade3a8e137a76 | `target/distributionx-testnet/receipts/claim.json` | OK | 786876 |
-| `close` on standalone LEZ | fc51f3135f02d77027fe2d36beb65486ff0e562397c773fc99669dcbf0240ceb | `target/distributionx-testnet/receipts/close.json` | OK | 505564 |
+| `init_airdrop` on standalone LEZ | fc34fee0720deadac88b5c0bbf6a4895507781b36c8dcc664be6e291b922a588 | `target/distributionx-testnet/receipts/init_airdrop.json` | OK | 444404 |
+| `fund` on standalone LEZ | 1a90bbfd5932d54e2e8160b8257b9cc3831a72bb9f548a8d3f1cfffc982cabe9 | `target/distributionx-testnet/receipts/fund.json` | OK | 449370 |
+| `claim` on standalone LEZ | 7fb59ebee17a5e37123027c8a76cda515f6266736fbb540d6d75095567653ff5 | `target/distributionx-testnet/receipts/claim.json` | OK | 218833847 |
+| `close` on standalone LEZ | 15e9b38c620c710c03035e10cd7dd9528d618ad8bf078e4680e1179a5c5a41c7 | `target/distributionx-testnet/receipts/close.json` | OK | 505765 |
 <!-- END cu-table -->

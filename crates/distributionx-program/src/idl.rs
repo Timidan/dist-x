@@ -262,12 +262,6 @@ mod tests {
                                     {"kind": "arg", "path": "airdrop_id"}
                                 ]
                             }
-                        },
-                        {
-                            "name": "recipient",
-                            "writable": true,
-                            "signer": false,
-                            "init": false
                         }
                     ],
                     "args": [

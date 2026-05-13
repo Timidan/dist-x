@@ -111,7 +111,6 @@ pub struct ClaimAccounts {
     pub airdrop: AccountId,
     pub nullifier_record: AccountId,
     pub vault: AccountId,
-    pub recipient: AccountId,
 }
 
 pub struct ClaimPrivateAccounts {
@@ -245,7 +244,6 @@ impl<'w> DistributionxClient<'w> {
             accounts.airdrop,
             accounts.nullifier_record,
             accounts.vault,
-            accounts.recipient,
         ];
         let signer_ids: Vec<AccountId> = vec![
         ];
