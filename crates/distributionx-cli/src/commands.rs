@@ -1710,12 +1710,7 @@ fn write_claim_tx(
     }
     write_json(
         path,
-        &ClaimTxFile::from_prepared(
-            prepared,
-            proof,
-            destination_packet,
-            claim_private_opt_in_for_claim_tx(),
-        )?,
+        &ClaimTxFile::from_prepared(prepared, proof, destination_packet)?,
     )
 }
 
@@ -2009,19 +2004,11 @@ impl ClaimTxFile {
         prepared: &PreparedClaim,
         proof: Option<&ProofFile>,
         destination_packet: Option<&ShieldedDestinationPacket>,
-        include_private_claim: bool,
     ) -> CliResult<Self> {
         let journal = match proof {
             Some(proof) => proof.to_journal()?,
             None => prepared.proof.journal.clone(),
         };
-        // The witness-bearing private_claim block is only emitted when the
-        // caller opts into the in-program claim_private verifier. Under the
-        // default receipt-based `claim` path the witness stays inside the
-        // Risc0 zkVM and never leaves the claimant's machine: claim.tx omits
-        // it, so the relayer and any file-system observer only see the
-        // receipt and public metadata.
-        let include_private_claim = include_private_claim && destination_packet.is_some();
         Ok(Self {
             recipient: format!(
                 "Public/{}",
@@ -2029,11 +2016,7 @@ impl ClaimTxFile {
             ),
             recipient_npk: destination_packet.map(|packet| hex::encode(packet.npk)),
             recipient_vpk: destination_packet.map(|packet| hex::encode(&packet.vpk)),
-            private_claim: if include_private_claim {
-                Some(PrivateClaimTxFile::from_prepared(prepared))
-            } else {
-                None
-            },
+            private_claim: destination_packet.map(|_| PrivateClaimTxFile::from_prepared(prepared)),
             airdrop_id: journal.airdrop_id,
             nullifier: journal.nullifier,
             receipt_bytes: match proof {
@@ -2042,16 +2025,6 @@ impl ClaimTxFile {
             },
         })
     }
-}
-
-fn claim_private_opt_in_for_claim_tx() -> bool {
-    matches!(
-        std::env::var("DISTRIBUTIONX_USE_CLAIM_PRIVATE")
-            .ok()
-            .as_deref()
-            .map(str::trim),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
 }
 
 impl PrivateClaimTxFile {
@@ -2311,8 +2284,8 @@ mod tests {
             journal: JournalFile::from_journal(&journal),
         };
 
-        let tx = ClaimTxFile::from_prepared(&prepared, Some(&proof), None, false)
-            .expect("claim tx from proof");
+        let tx =
+            ClaimTxFile::from_prepared(&prepared, Some(&proof), None).expect("claim tx from proof");
         assert_eq!(tx.recipient, format!("Public/{}", hex::encode([9u8; 32])));
         assert!(tx.recipient_npk.is_none());
         assert!(tx.recipient_vpk.is_none());
@@ -2374,45 +2347,15 @@ mod tests {
             identifier_le: [13u8; 16],
         };
 
-        let default_tx =
-            ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination), false)
-                .expect("claim tx default");
-        assert_eq!(
-            default_tx.recipient_npk.as_deref(),
-            Some(hex::encode([11u8; 32]).as_str())
-        );
-        assert!(default_tx.recipient_vpk.is_some());
-        assert!(
-            default_tx.private_claim.is_none(),
-            "default receipt path must strip the witness from claim.tx",
-        );
-        let encoded_default =
-            String::from_utf8(serde_json::to_vec(&default_tx).expect("default claim tx JSON"))
-                .expect("default claim tx utf8");
-        for private_field in [
-            "claimant_address",
-            "salt",
-            "claim_sig",
-            "merkle_siblings",
-            "merkle_path_is_right",
-        ] {
-            assert!(
-                !encoded_default.contains(private_field),
-                "default claim tx leaked {private_field}",
-            );
-        }
+        let tx = ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination))
+            .expect("claim tx");
 
-        let opt_in_tx =
-            ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination), true)
-                .expect("claim tx opt-in");
         assert_eq!(
-            opt_in_tx.recipient_npk.as_deref(),
+            tx.recipient_npk.as_deref(),
             Some(hex::encode([11u8; 32]).as_str())
         );
-        assert!(opt_in_tx.recipient_vpk.is_some());
-        let private_claim = opt_in_tx
-            .private_claim
-            .expect("private claim witness under opt-in");
+        assert!(tx.recipient_vpk.is_some());
+        let private_claim = tx.private_claim.expect("private claim witness");
         assert_eq!(private_claim.bucket_id, 1);
         assert_eq!(private_claim.claim_destination_commitment, [9u8; 32]);
         assert_eq!(private_claim.claimant_address, [1u8; 32]);
