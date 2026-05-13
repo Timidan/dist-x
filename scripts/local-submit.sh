@@ -169,14 +169,37 @@ fn claim_has_private_payload(args: &Value) -> bool {
         && args.get("recipient_vpk").is_some()
 }
 
+// The demo default is the receipt-based `claim` instruction, where the witness
+// fields (eligible address, salt, signature, Merkle path) are private zkVM
+// inputs and are not part of the public transaction transcript. Setting
+// DISTRIBUTIONX_USE_CLAIM_PRIVATE=1 opts into the in-program `claim_private`
+// verifier, which carries the witness in instruction args and therefore does
+// not preserve observer privacy.
+fn claim_private_opt_in() -> bool {
+    matches!(
+        std::env::var("DISTRIBUTIONX_USE_CLAIM_PRIVATE")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
 fn should_use_private_claim(op: &str, args: &Value) -> Result<bool, String> {
     if op != "claim" {
         return Ok(false);
     }
-    if claim_has_private_payload(args) {
-        return Ok(true);
+    if !claim_private_opt_in() {
+        return Ok(false);
     }
-    Err("E_DISTRIBUTIONX_PRIVATE_CLAIM_REQUIRED".to_owned())
+    if !claim_has_private_payload(args) {
+        return Err(
+            "E_DISTRIBUTIONX_PRIVATE_CLAIM_REQUIRED: DISTRIBUTIONX_USE_CLAIM_PRIVATE is set but \
+             payload lacks private_claim/recipient_npk/recipient_vpk"
+                .to_owned(),
+        );
+    }
+    Ok(true)
 }
 
 mod generated {

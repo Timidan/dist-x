@@ -1,6 +1,6 @@
 # DistributionX
 
-DistributionX is a private allowlist airdrop for the Logos Execution Zone (LEZ). A distributor publishes only a Merkle root on-chain. A claimant proves membership with a real Risc0 receipt and claims to a shielded destination commitment without revealing the eligible address, salt, signature, or Merkle path in the public journal.
+DistributionX is a private allowlist airdrop for the Logos Execution Zone (LEZ). A distributor publishes only a Merkle root on-chain. A claimant proves membership with a real Risc0 receipt and claims to a shielded destination commitment through the `claim` instruction. The witness fields (eligible address, salt, signature, Merkle path) are private inputs to the Risc0 zkVM and do not appear in the public transaction transcript.
 
 Architecture diagram: [DistributionX.system-architecture.excalidraw](DistributionX.system-architecture.excalidraw).
 
@@ -22,7 +22,7 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | Retry safety after failed claim | `atomicity_failed_transfer_rolls_back_nullifier.rs`, `claim_atomicity.rs` |
 | Proof time and LEZ operation cost | [docs/bench/REPORT.md](docs/bench/REPORT.md) |
 | E2E local sequencer demo with `RISC0_DEV_MODE=0` | `bash scripts/e2e.sh private-localnet` |
-| CI coverage | `.github/workflows/distributionx-testnet-ready.yml` |
+| CI coverage | `.github/workflows/distributionx-ci.yml` |
 | License | `LICENSE-MIT`, `LICENSE-APACHE` |
 | FURPS self-assessment and upstream issues | [solutions/DistributionX.md](solutions/DistributionX.md) |
 
@@ -30,7 +30,7 @@ The previous adoption target for three outside-team distributions is out of scop
 
 ## Recorded Evidence
 
-Standalone LEZ shielded/private real-proof run:
+Standalone LEZ shielded real-proof run:
 
 | Field | Value |
 |---|---|
@@ -41,7 +41,7 @@ Standalone LEZ shielded/private real-proof run:
 | Deploy tx | `666a39c783a5a96e613e956f5ec1e9211aae5d846616313d642c86bf4a726f48` |
 | E2E result | `DISTRIBUTIONX_E2E_PASS` |
 | Proof mode | `risc0-zkvm-receipt`, `RISC0_DEV_MODE=0` |
-| Flow | deploy, init, fund, prove, verify, private claim, duplicate rejection, close |
+| Flow | deploy, init, fund, prove, verify, `claim` (Risc0 receipt), duplicate rejection, close |
 
 CU values are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md).
 
@@ -143,7 +143,7 @@ bash scripts/standalone-sequencer.sh restart --clean
 bash scripts/e2e.sh private-localnet
 ```
 
-The E2E script installs the tracked reviewer fixture, builds `target/release/distributionx-cli` if it is missing, deploys the LEZ program, initializes the airdrop, funds the vault, proves with `RISC0_DEV_MODE=0`, verifies the receipt, submits a private claim, rejects a duplicate claim with `E_ALREADY_CLAIMED`, closes the airdrop, and prints `DISTRIBUTIONX_E2E_PASS`. Logs are written to `docs/run-logs/e2e/`.
+The E2E script installs the tracked reviewer fixture, builds `target/release/distributionx-cli` if it is missing, deploys the LEZ program, initializes the airdrop, funds the vault, proves with `RISC0_DEV_MODE=0`, verifies the receipt, submits the `claim` transaction with the Risc0 receipt (set `DISTRIBUTIONX_USE_CLAIM_PRIVATE=1` to route through the in-program `claim_private` verifier instead), rejects a duplicate claim with `E_ALREADY_CLAIMED`, closes the airdrop, and prints `DISTRIBUTIONX_E2E_PASS`. Logs are written to `docs/run-logs/e2e/`.
 
 By default localnet E2E uses `fixtures/reviewer-fast-path/`. Set `DISTRIBUTIONX_USE_REVIEWER_FIXTURE=0` to generate a fresh fixture with `distributionx-cli sample-fixture`.
 

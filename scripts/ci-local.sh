@@ -53,7 +53,7 @@ run_tracked_check() {
 
   local missing=0
   local required=(
-    ".github/workflows/distributionx-testnet-ready.yml"
+    ".github/workflows/distributionx-ci.yml"
     ".gitignore"
     "Cargo.lock"
     "Cargo.toml"
