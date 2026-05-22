@@ -17,7 +17,7 @@ mod tests {
 
     const CANONICAL_IDL_JSON: &str =
         include_str!("../../distributionx-program/idl/distributionx.json");
-    const ROOT_IDL_JSON: &str = include_str!("../../../idl/distributionx.json");
+    const ROOT_IDL_JSON: &str = include_str!("../../../idl/distributionx.idl.json");
 
     fn parse(value: &str) -> serde_json::Value {
         serde_json::from_str(value).expect("valid distributionx IDL JSON")

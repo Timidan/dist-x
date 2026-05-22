@@ -9,7 +9,7 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | Requirement | Evidence |
 |---|---|
 | LEZ program in Rust/SPEL | `crates/distributionx-program/`, `methods/guest/src/bin/distributionx.rs` |
-| SPEL IDL | `idl/distributionx.json`, `crates/distributionx-program/idl/distributionx.json` |
+| SPEL IDL | `idl/distributionx.idl.json`, `crates/distributionx-program/idl/distributionx.json` |
 | Risc0 proof stack | `methods/`, `crates/distributionx-circuit/`, `distributionx-cli prove` |
 | Eligibility committed without public addresses | `init_airdrop` stores `merkle_root` and `bucket_table_hash`; encrypted rows stay in `bundle.json` |
 | Recipient claims without revealing eligible address | Risc0 public journal contains `airdrop_id`, `merkle_root`, `bucket_id`, `nullifier`, `claim_destination_commitment` |
@@ -18,7 +18,7 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | Client SDK / CLI | `crates/distributionx-client/`, `crates/distributionx-cli/` |
 | Logos module SDK | `distributionx_client_module/` |
 | Basecamp GUI and LGX assets | `basecamp-app/`, `bash scripts/package.sh` |
-| Deterministic error codes | `crates/distributionx-program/src/errors.rs`, `idl/distributionx.json` |
+| Deterministic error codes | `crates/distributionx-program/src/errors.rs`, `idl/distributionx.idl.json` |
 | Retry safety after failed claim | `atomicity_failed_transfer_rolls_back_nullifier.rs`, `claim_atomicity.rs` |
 | Proof time and LEZ operation cost | [docs/bench/REPORT.md](docs/bench/REPORT.md) |
 | E2E local sequencer demo with `RISC0_DEV_MODE=0` | `bash scripts/e2e.sh private-localnet` |
