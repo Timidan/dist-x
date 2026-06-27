@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-exclude = [".scaffold/cache/repos/lez/rc5"]
+# vendor/spel-framework is a vendored upstream fork with its own [workspace]. Keep
+# it OUT of this workspace so its crates are external path-deps (cap-lints=allow):
+# `cargo clippy --workspace -- -D warnings` then lints only first-party code and
+# does not fail on the fork's upstream lints. (rustfmt still descends into path-dep
+# sources, so the fmt step formats an explicit first-party package list instead of
+# `--all`; see .github/workflows/distributionx-ci.yml and scripts/ci-local.sh.)
+exclude = [".scaffold/cache/repos/lez/rc5", "vendor/spel-framework"]
 members = [
   "methods",
   "methods/guest",

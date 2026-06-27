@@ -43,7 +43,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Format
-        run: cargo fmt --all -- --check
+        run: |
+          # `cargo fmt --all` also descends into vendored path-dependency crates
+          # (vendor/spel-framework/*) — upstream forks we keep verbatim and which
+          # rustfmt cannot even format cleanly. Format only first-party members.
+          pkgs="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(" ".join("-p "+p["name"] for p in json.load(sys.stdin)["packages"] if "/vendor/" not in p["manifest_path"]))')"
+          echo "Formatting: ${pkgs}"
+          cargo fmt ${pkgs} -- --check
       - name: Test
         env:
           RISC0_SKIP_BUILD: "1"

@@ -974,8 +974,7 @@ fn token_settlement_for_claim(
     if state.token_source_account.trim().is_empty() || amount == 0 {
         return Ok(None);
     }
-    let (recipient_account, recipient_identifier_le) =
-        token_settlement_recipient(claim_tx)?;
+    let (recipient_account, recipient_identifier_le) = token_settlement_recipient(claim_tx)?;
     Ok(Some(TokenSettlementRequest {
         token_id: state.token_id.clone(),
         source_account: state.token_source_account.clone(),
@@ -985,9 +984,7 @@ fn token_settlement_for_claim(
     }))
 }
 
-fn token_settlement_recipient(
-    claim_tx: &ClaimTxFile,
-) -> CliResult<(String, Option<String>)> {
+fn token_settlement_recipient(claim_tx: &ClaimTxFile) -> CliResult<(String, Option<String>)> {
     if claim_tx.private_claim.is_none() {
         return Ok((claim_tx.recipient.clone(), None));
     }

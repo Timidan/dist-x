@@ -33,6 +33,18 @@ log() {
   printf '[distributionx-ci-local] %s\n' "$*"
 }
 
+# `cargo fmt --all` also descends into vendored path-dependency crates
+# (vendor/spel-framework/*) — upstream forks we keep verbatim and which rustfmt
+# cannot even format cleanly. Format only first-party workspace members.
+first_party_fmt_check() {
+  local pkgs
+  pkgs="$(cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json,sys; print(" ".join("-p "+p["name"] for p in json.load(sys.stdin)["packages"] if "/vendor/" not in p["manifest_path"]))')"
+  log "cargo fmt ${pkgs} -- --check"
+  # shellcheck disable=SC2086
+  cargo fmt ${pkgs} -- --check
+}
+
 nix_build() {
   nix --extra-experimental-features 'nix-command flakes' build -L "$@"
 }
@@ -59,9 +71,16 @@ run_tracked_check() {
     "Cargo.toml"
     "README.md"
     "DistributionX.system-architecture.excalidraw"
+    "docs/TESTNET_EVIDENCE.md"
     "scripts/ci-local.sh"
     "scripts/risc0-setup.sh"
+    # Sentinels for the vendored spel-framework fork: if the whole tree is ever
+    # re-gitignored (the original CI break), these stop being tracked and fail.
+    "vendor/spel-framework/Cargo.toml"
+    "vendor/spel-framework/spel-framework/Cargo.toml"
+    "vendor/spel-framework/spel-framework-macros/src/lib.rs"
   )
+  # nssa_core + fixtures: every file is a build input and must be tracked.
   while IFS= read -r file; do
     required+=("${file}")
   done < <(find vendor/nssa_core fixtures/reviewer-fast-path -type f | sort)
@@ -77,6 +96,19 @@ run_tracked_check() {
       missing=1
     fi
   done
+
+  # Any source under vendor/spel-framework that exists, is NOT gitignored (the
+  # fork's own .gitignore excludes target/ and Cargo.lock), but is untracked —
+  # i.e. vendoring was partially skipped. Respects .gitignore so derived locks
+  # don't trip the check.
+  local untracked_vendored
+  untracked_vendored="$(git ls-files --others --exclude-standard vendor/spel-framework 2>/dev/null)"
+  if [[ -n "${untracked_vendored}" ]]; then
+    while IFS= read -r file; do
+      printf '[distributionx-ci-local] untracked (not gitignored) vendored file: %s\n' "${file}" >&2
+    done <<<"${untracked_vendored}"
+    missing=1
+  fi
 
   if [[ "${missing}" -ne 0 ]]; then
     printf '[distributionx-ci-local] tracked-file check failed; CI will not see the files above.\n' >&2
@@ -108,8 +140,7 @@ run_rust_job() {
     log "syncing stable Rust toolchain to match dtolnay/rust-toolchain@stable"
     rustup update stable
   fi
-  log "cargo fmt --all -- --check"
-  cargo fmt --all -- --check
+  first_party_fmt_check
 
   log "cargo test"
   RISC0_SKIP_BUILD=1 cargo test \
@@ -172,8 +203,7 @@ run_quick() {
   run_scripts_check
   log "cargo metadata"
   cargo metadata --no-deps --format-version 1 >/dev/null
-  log "cargo fmt --all -- --check"
-  cargo fmt --all -- --check
+  first_party_fmt_check
 }
 
 case "${mode}" in

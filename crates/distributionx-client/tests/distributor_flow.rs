@@ -78,6 +78,13 @@ fn disclosure_json_names_reputational_fields() {
 fn module_author_bindings_expose_program_instructions() {
     assert_eq!(
         distributionx_bindings::instruction_names(),
-        vec!["init_airdrop", "fund", "claim", "claim_private", "close"]
+        vec![
+            "init_airdrop",
+            "fund",
+            "claim",
+            "claim_private",
+            "claim_ppe",
+            "close"
+        ]
     );
 }

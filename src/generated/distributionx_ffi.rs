@@ -6,16 +6,16 @@
 //   - `sequencer_url`: e.g. "http://127.0.0.1:3040"
 //   - `program_id_hex`: 64-char hex string identifying the program
 
-use lee::public_transaction::{Message, WitnessSet};
-use lee::{AccountId, ProgramId, PublicTransaction};
-use lee_core::program::PdaSeed;
-use sequencer_service_rpc::RpcClient as _;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use serde_json::{Value, json};
+use sha2::{Sha256, Digest};
+use lee::{AccountId, ProgramId, PublicTransaction};
+use lee::public_transaction::{Message, WitnessSet};
+use lee_core::program::PdaSeed;
+use sequencer_service_rpc::RpcClient as _;
 use wallet::WalletCore;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DistributionxInstruction {
@@ -72,18 +72,14 @@ pub enum DistributionxInstruction {
 }
 
 fn cstr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, String> {
-    if ptr.is_null() {
-        return Err("null pointer".into());
-    }
-    unsafe { CStr::from_ptr(ptr) }
-        .to_str()
-        .map_err(|e| format!("invalid UTF-8: {}", e))
+    if ptr.is_null() { return Err("null pointer".into()); }
+    unsafe { CStr::from_ptr(ptr) }.to_str().map_err(|e| format!("invalid UTF-8: {}", e))
 }
 
 fn to_cstring(s: String) -> *mut c_char {
-    CString::new(s)
-        .unwrap_or_else(|_| CString::new(r#"{"success":false,"error":"null byte"}"#).unwrap())
-        .into_raw()
+    CString::new(s).unwrap_or_else(|_|
+        CString::new(r#"{"success":false,"error":"null byte"}"#).unwrap()
+    ).into_raw()
 }
 
 fn error_json(msg: &str) -> *mut c_char {
@@ -94,12 +90,10 @@ fn error_json(msg: &str) -> *mut c_char {
 
 fn ffi_call(f: impl FnOnce() -> Result<String, String>) -> *mut c_char {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-        Ok(Ok(r)) => to_cstring(r),
+        Ok(Ok(r))  => to_cstring(r),
         Ok(Err(e)) => error_json(&e),
         Err(payload) => {
-            let msg = payload
-                .downcast_ref::<&str>()
-                .copied()
+            let msg = payload.downcast_ref::<&str>().copied()
                 .or_else(|| payload.downcast_ref::<String>().map(|s| s.as_str()))
                 .unwrap_or("<unknown panic>");
             error_json(&format!("panic: {}", msg))
@@ -127,9 +121,7 @@ fn pda_seed_bytes(seeds: &[&[u8]]) -> Result<[u8; 32], String> {
     }
     if seeds.len() == 1 {
         let len = seeds[0].len();
-        if len > 32 {
-            return Err(format!("PDA seed exceeds 32 bytes ({len})"));
-        }
+        if len > 32 { return Err(format!("PDA seed exceeds 32 bytes ({len})")); }
         let mut padded = [0u8; 32];
         padded[..len].copy_from_slice(&seeds[0][..len]);
         Ok(padded)
@@ -137,9 +129,7 @@ fn pda_seed_bytes(seeds: &[&[u8]]) -> Result<[u8; 32], String> {
         let mut hasher = Sha256::new();
         for seed in seeds {
             let len = seed.len();
-            if len > 32 {
-                return Err(format!("PDA seed exceeds 32 bytes ({len})"));
-            }
+            if len > 32 { return Err(format!("PDA seed exceeds 32 bytes ({len})")); }
             let mut padded = [0u8; 32];
             padded[..len].copy_from_slice(&seed[..len]);
             hasher.update(&padded);
@@ -149,17 +139,12 @@ fn pda_seed_bytes(seeds: &[&[u8]]) -> Result<[u8; 32], String> {
 }
 #[allow(dead_code)]
 fn compute_pda_with_program(program_id: &ProgramId, seeds: &[&[u8]]) -> Result<AccountId, String> {
-    Ok(AccountId::for_public_pda(
-        program_id,
-        &PdaSeed::new(pda_seed_bytes(seeds)?),
-    ))
+    Ok(AccountId::for_public_pda(program_id, &PdaSeed::new(pda_seed_bytes(seeds)?)))
 }
 
 fn parse_program_id_hex(s: &str) -> Result<ProgramId, String> {
     let s = s.trim_start_matches("0x");
-    if s.len() != 64 {
-        return Err(format!("program_id hex must be 64 chars, got {}", s.len()));
-    }
+    if s.len() != 64 { return Err(format!("program_id hex must be 64 chars, got {}", s.len())); }
     let bytes = hex::decode(s).map_err(|e| format!("invalid hex: {}", e))?;
     let mut pid = [0u32; 8];
     for (i, chunk) in bytes.chunks(4).enumerate() {
@@ -174,18 +159,12 @@ fn parse_program_id(s: &str) -> Result<ProgramId, String> {
 
 fn parse_account_id(s: &str) -> Result<AccountId, String> {
     let raw = s;
-    let s = s
-        .strip_prefix("Public/")
-        .or_else(|| s.strip_prefix("Private/"))
-        .unwrap_or(s);
-    if let Ok(id) = s.parse() {
-        return Ok(id);
-    }
+    let s = s.strip_prefix("Public/").or_else(|| s.strip_prefix("Private/")).unwrap_or(s);
+    if let Ok(id) = s.parse() { return Ok(id); }
     let s = s.trim_start_matches("0x");
     if s.len() == 64 {
         let bytes = hex::decode(s).map_err(|e| format!("invalid hex: {}", e))?;
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
+        let mut arr = [0u8; 32]; arr.copy_from_slice(&bytes);
         return Ok(AccountId::new(arr));
     }
     Err(format!("invalid AccountId: {}", raw))
@@ -193,22 +172,15 @@ fn parse_account_id(s: &str) -> Result<AccountId, String> {
 
 static ASYNC_RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
 fn get_runtime() -> &'static tokio::runtime::Runtime {
-    ASYNC_RUNTIME
-        .get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create Tokio runtime"))
+    ASYNC_RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create Tokio runtime"))
 }
 
 static WALLET_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn init_wallet(v: &Value) -> Result<WalletCore, String> {
-    let _guard = WALLET_INIT_LOCK
-        .lock()
-        .map_err(|_| "wallet lock poisoned".to_string())?;
-    let wallet_path = v["wallet_path"]
-        .as_str()
-        .ok_or("missing required field: wallet_path")?;
-    let sequencer_url = v["sequencer_url"]
-        .as_str()
-        .ok_or("missing required field: sequencer_url")?;
+    let _guard = WALLET_INIT_LOCK.lock().map_err(|_| "wallet lock poisoned".to_string())?;
+    let wallet_path = v["wallet_path"].as_str().ok_or("missing required field: wallet_path")?;
+    let sequencer_url = v["sequencer_url"].as_str().ok_or("missing required field: sequencer_url")?;
     std::env::set_var("LEE_WALLET_HOME_DIR", wallet_path);
     std::env::set_var("LEE_SEQUENCER_URL", sequencer_url);
     WalletCore::from_env().map_err(|e| format!("wallet init: {}", e))
@@ -218,49 +190,45 @@ fn init_wallet(v: &Value) -> Result<WalletCore, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_init_airdrop(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_init_airdrop_impl(args))
 }
 
 fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let token_id =
-        serde_json::from_value(v["token_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let merkle_root = serde_json::from_value(v["merkle_root"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let token_id = serde_json::from_value(v["token_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let merkle_root = serde_json::from_value(v["merkle_root"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let tree_depth = v["tree_depth"].as_u64().ok_or("expected number")? as u8;
-    let bucket_table_hash = serde_json::from_value(v["bucket_table_hash"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let bucket_table = v["bucket_table"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_u64().ok_or("expected number")? as u64))
-        .collect::<Result<Vec<_>, String>>()?;
-    let image_id =
-        serde_json::from_value(v["image_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let bucket_table_hash = serde_json::from_value(v["bucket_table_hash"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let bucket_table = v["bucket_table"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u64)).collect::<Result<Vec<_>, String>>()?;
+    let image_id = serde_json::from_value(v["image_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let expiry_unix = v["expiry_unix"].as_i64().ok_or("expected number")? as i64;
-    let recovery_address = serde_json::from_value(v["recovery_address"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let recovery_address = serde_json::from_value(v["recovery_address"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
     let distributor = parse_account_id(v["distributor"].as_str().ok_or("missing distributor")?)?;
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, vault, distributor];
-    let signer_ids: Vec<AccountId> = vec![distributor];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        vault,
+        distributor,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+        distributor,
+    ];
 
     let instruction = DistributionxInstruction::InitAirdrop {
         airdrop_id,
@@ -277,15 +245,11 @@ fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -294,10 +258,7 @@ fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -309,32 +270,38 @@ fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_fund(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_fund_impl(args))
 }
 
 fn distributionx_fund_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let amount = v["amount"].as_u64().ok_or("expected number")? as u64;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
     let distributor = parse_account_id(v["distributor"].as_str().ok_or("missing distributor")?)?;
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, vault, distributor];
-    let signer_ids: Vec<AccountId> = vec![distributor];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        vault,
+        distributor,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+        distributor,
+    ];
 
     let instruction = DistributionxInstruction::Fund {
         airdrop_id,
@@ -344,15 +311,11 @@ fn distributionx_fund_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -361,10 +324,7 @@ fn distributionx_fund_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -376,42 +336,42 @@ fn distributionx_fund_impl(args: &str) -> Result<String, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_claim(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_claim_impl(args))
 }
 
 fn distributionx_claim_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let nullifier = serde_json::from_value(v["nullifier"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let receipt_bytes = v["receipt_bytes"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_u64().ok_or("expected number")? as u8))
-        .collect::<Result<Vec<_>, String>>()?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let nullifier = serde_json::from_value(v["nullifier"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let receipt_bytes = v["receipt_bytes"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u8)).collect::<Result<Vec<_>, String>>()?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let nullifier_record = compute_pda_with_program(
-        &program_id,
-        &[b"nullifier", airdrop_id.as_ref(), nullifier.as_ref()],
-    )?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let nullifier_record = compute_pda_with_program(&program_id, &[
+        b"nullifier",
+        airdrop_id.as_ref(),
+        nullifier.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, nullifier_record, vault];
-    let signer_ids: Vec<AccountId> = vec![];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        nullifier_record,
+        vault,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+    ];
 
     let instruction = DistributionxInstruction::Claim {
         airdrop_id,
@@ -422,15 +382,11 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -439,10 +395,7 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -454,64 +407,48 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_claim_private(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_claim_private_impl(args))
 }
 
 fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let bucket_id = v["bucket_id"].as_u64().ok_or("expected number")? as u8;
-    let nullifier = serde_json::from_value(v["nullifier"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let claim_destination_commitment =
-        serde_json::from_value(v["claim_destination_commitment"].clone())
-            .map_err(|e| format!("parse error: {}", e))?;
-    let claimant_address = serde_json::from_value(v["claimant_address"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let salt =
-        serde_json::from_value(v["salt"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let claim_sig = v["claim_sig"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_u64().ok_or("expected number")? as u8))
-        .collect::<Result<Vec<_>, String>>()?;
-    let merkle_siblings = v["merkle_siblings"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| {
-            Ok(serde_json::from_value(item.clone()).map_err(|e| format!("parse error: {}", e))?)
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let merkle_path_is_right = v["merkle_path_is_right"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_bool().ok_or("expected bool")?))
-        .collect::<Result<Vec<_>, String>>()?;
+    let nullifier = serde_json::from_value(v["nullifier"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claim_destination_commitment = serde_json::from_value(v["claim_destination_commitment"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claimant_address = serde_json::from_value(v["claimant_address"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let salt = serde_json::from_value(v["salt"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claim_sig = v["claim_sig"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u8)).collect::<Result<Vec<_>, String>>()?;
+    let merkle_siblings = v["merkle_siblings"].as_array().ok_or("expected array")?.iter().map(|item| Ok(serde_json::from_value(item.clone()).map_err(|e| format!("parse error: {}", e))?)).collect::<Result<Vec<_>, String>>()?;
+    let merkle_path_is_right = v["merkle_path_is_right"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_bool().ok_or("expected bool")?)).collect::<Result<Vec<_>, String>>()?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let nullifier_record = compute_pda_with_program(
-        &program_id,
-        &[b"nullifier", airdrop_id.as_ref(), nullifier.as_ref()],
-    )?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let nullifier_record = compute_pda_with_program(&program_id, &[
+        b"nullifier",
+        airdrop_id.as_ref(),
+        nullifier.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, nullifier_record, vault];
-    let signer_ids: Vec<AccountId> = vec![];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        nullifier_record,
+        vault,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+    ];
 
     let instruction = DistributionxInstruction::ClaimPrivate {
         airdrop_id,
@@ -528,15 +465,11 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -545,10 +478,7 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -560,65 +490,50 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_claim_ppe(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_claim_ppe_impl(args))
 }
 
 fn distributionx_claim_ppe_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
     let bucket_id = v["bucket_id"].as_u64().ok_or("expected number")? as u8;
-    let nullifier = serde_json::from_value(v["nullifier"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let claim_destination_commitment =
-        serde_json::from_value(v["claim_destination_commitment"].clone())
-            .map_err(|e| format!("parse error: {}", e))?;
-    let claimant_address = serde_json::from_value(v["claimant_address"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
-    let salt =
-        serde_json::from_value(v["salt"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let claim_sig = v["claim_sig"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_u64().ok_or("expected number")? as u8))
-        .collect::<Result<Vec<_>, String>>()?;
-    let merkle_siblings = v["merkle_siblings"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| {
-            Ok(serde_json::from_value(item.clone()).map_err(|e| format!("parse error: {}", e))?)
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let merkle_path_is_right = v["merkle_path_is_right"]
-        .as_array()
-        .ok_or("expected array")?
-        .iter()
-        .map(|item| Ok(item.as_bool().ok_or("expected bool")?))
-        .collect::<Result<Vec<_>, String>>()?;
+    let nullifier = serde_json::from_value(v["nullifier"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claim_destination_commitment = serde_json::from_value(v["claim_destination_commitment"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claimant_address = serde_json::from_value(v["claimant_address"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let salt = serde_json::from_value(v["salt"].clone()).map_err(|e| format!("parse error: {}", e))?;
+    let claim_sig = v["claim_sig"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u8)).collect::<Result<Vec<_>, String>>()?;
+    let merkle_siblings = v["merkle_siblings"].as_array().ok_or("expected array")?.iter().map(|item| Ok(serde_json::from_value(item.clone()).map_err(|e| format!("parse error: {}", e))?)).collect::<Result<Vec<_>, String>>()?;
+    let merkle_path_is_right = v["merkle_path_is_right"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_bool().ok_or("expected bool")?)).collect::<Result<Vec<_>, String>>()?;
     let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
 
     let recipient = parse_account_id(v["recipient"].as_str().ok_or("missing recipient")?)?;
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let nullifier_record = compute_pda_with_program(
-        &program_id,
-        &[b"nullifier", airdrop_id.as_ref(), nullifier.as_ref()],
-    )?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let nullifier_record = compute_pda_with_program(&program_id, &[
+        b"nullifier",
+        airdrop_id.as_ref(),
+        nullifier.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, nullifier_record, vault, recipient];
-    let signer_ids: Vec<AccountId> = vec![];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        nullifier_record,
+        vault,
+        recipient,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+    ];
 
     let instruction = DistributionxInstruction::ClaimPpe {
         airdrop_id,
@@ -635,15 +550,11 @@ fn distributionx_claim_ppe_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -652,10 +563,7 @@ fn distributionx_claim_ppe_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -667,45 +575,50 @@ fn distributionx_claim_ppe_impl(args: &str) -> Result<String, String> {
 #[no_mangle]
 pub extern "C" fn distributionx_close(args_json: *const c_char) -> *mut c_char {
     let args = match cstr_to_str(args_json) {
-        Ok(s) => s,
-        Err(e) => return error_json(&e),
+        Ok(s) => s, Err(e) => return error_json(&e),
     };
     ffi_call(move || distributionx_close_impl(args))
 }
 
 fn distributionx_close_impl(args: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(
-        v["program_id_hex"]
-            .as_str()
-            .ok_or("missing program_id_hex")?,
-    )?;
+    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
     let wallet = init_wallet(&v)?;
 
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone())
-        .map_err(|e| format!("parse error: {}", e))?;
+    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
 
     let recovery = parse_account_id(v["recovery"].as_str().ok_or("missing recovery")?)?;
     let distributor = parse_account_id(v["distributor"].as_str().ok_or("missing distributor")?)?;
-    let airdrop = compute_pda_with_program(&program_id, &[b"airdrop", airdrop_id.as_ref()])?;
-    let vault = compute_pda_with_program(&program_id, &[b"vault", airdrop_id.as_ref()])?;
+    let airdrop = compute_pda_with_program(&program_id, &[
+        b"airdrop",
+        airdrop_id.as_ref(),
+    ])?;
+    let vault = compute_pda_with_program(&program_id, &[
+        b"vault",
+        airdrop_id.as_ref(),
+    ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![airdrop, vault, recovery, distributor];
-    let signer_ids: Vec<AccountId> = vec![distributor];
+    let mut account_ids: Vec<AccountId> = vec![
+        airdrop,
+        vault,
+        recovery,
+        distributor,
+    ];
+    let signer_ids: Vec<AccountId> = vec![
+        distributor,
+    ];
 
-    let instruction = DistributionxInstruction::Close { airdrop_id };
+    let instruction = DistributionxInstruction::Close {
+        airdrop_id,
+    };
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet
-            .get_accounts_nonces(signer_ids.clone())
-            .await
+        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
             .map_err(|e| format!("nonces: {}", e))?;
         let mut signing_keys = Vec::new();
         for sid in &signer_ids {
-            let key = wallet
-                .storage()
-                .user_data
+            let key = wallet.storage().user_data
                 .get_pub_account_signing_key(*sid)
                 .ok_or_else(|| format!("signing key not found for {}", sid))?;
             signing_keys.push(key);
@@ -714,10 +627,7 @@ fn distributionx_close_impl(args: &str) -> Result<String, String> {
             .map_err(|e| format!("message: {:?}", e))?;
         let witness_set = WitnessSet::for_message(&message, &signing_keys);
         let tx = PublicTransaction::new(message, witness_set);
-        wallet
-            .sequencer_client
-            .send_transaction(common::transaction::LeeTransaction::Public(tx))
-            .await
+        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
             .map_err(|e| format!("submit: {}", e))
             .map(|r| hex::encode(r.0))
     })?;
@@ -727,9 +637,7 @@ fn distributionx_close_impl(args: &str) -> Result<String, String> {
 
 #[no_mangle]
 pub extern "C" fn distributionx_free_string(s: *mut c_char) {
-    if !s.is_null() {
-        unsafe { drop(CString::from_raw(s)) };
-    }
+    if !s.is_null() { unsafe { drop(CString::from_raw(s)) }; }
 }
 
 #[no_mangle]
@@ -740,7 +648,7 @@ pub extern "C" fn distributionx_version() -> *mut c_char {
 /// Compute PDA for `airdrop` account.
 /// Seeds: [const("airdrop"), arg(airdrop_id)]
 pub fn compute_airdrop_pda(program_id: &ProgramId, airdrop_id: &[u8; 32]) -> AccountId {
-    use sha2::{Digest, Sha256};
+    use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
     {
         let mut padded = [0u8; 32];
@@ -757,7 +665,7 @@ pub fn compute_airdrop_pda(program_id: &ProgramId, airdrop_id: &[u8; 32]) -> Acc
 /// Compute PDA for `vault` account.
 /// Seeds: [const("vault"), arg(airdrop_id)]
 pub fn compute_vault_pda(program_id: &ProgramId, airdrop_id: &[u8; 32]) -> AccountId {
-    use sha2::{Digest, Sha256};
+    use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
     {
         let mut padded = [0u8; 32];
@@ -773,12 +681,8 @@ pub fn compute_vault_pda(program_id: &ProgramId, airdrop_id: &[u8; 32]) -> Accou
 
 /// Compute PDA for `nullifier_record` account.
 /// Seeds: [const("nullifier"), arg(airdrop_id), arg(nullifier)]
-pub fn compute_nullifier_record_pda(
-    program_id: &ProgramId,
-    airdrop_id: &[u8; 32],
-    nullifier: &[u8; 32],
-) -> AccountId {
-    use sha2::{Digest, Sha256};
+pub fn compute_nullifier_record_pda(program_id: &ProgramId, airdrop_id: &[u8; 32], nullifier: &[u8; 32]) -> AccountId {
+    use sha2::{Sha256, Digest};
     let mut hasher = Sha256::new();
     {
         let mut padded = [0u8; 32];

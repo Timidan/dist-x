@@ -34,7 +34,14 @@ mod tests {
     fn exposes_expected_instruction_names() {
         assert_eq!(
             crate::instruction_names(),
-            ["init_airdrop", "fund", "claim", "claim_private", "close"]
+            [
+                "init_airdrop",
+                "fund",
+                "claim",
+                "claim_private",
+                "claim_ppe",
+                "close"
+            ]
         );
     }
 }

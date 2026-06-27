@@ -224,6 +224,66 @@
           "writable": true
         },
         {
+          "init": true,
+          "name": "nullifier_record",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "nullifier"},
+              {"kind": "arg", "path": "airdrop_id"},
+              {"kind": "arg", "path": "nullifier"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": false,
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "vault"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
+          "init": true,
+          "name": "recipient",
+          "signer": false,
+          "writable": true
+        }
+      ],
+      "args": [
+        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+        {"name": "bucket_id", "type": "u8"},
+        {"name": "nullifier", "type": {"array": ["u8", 32]}},
+        {"name": "claim_destination_commitment", "type": {"array": ["u8", 32]}},
+        {"name": "claimant_address", "type": {"array": ["u8", 32]}},
+        {"name": "salt", "type": {"array": ["u8", 32]}},
+        {"name": "claim_sig", "type": {"vec": "u8"}},
+        {"name": "merkle_siblings", "type": {"vec": {"array": ["u8", 32]}}},
+        {"name": "merkle_path_is_right", "type": {"vec": "bool"}},
+        {"name": "now_unix", "type": "i64"}
+      ],
+      "name": "claim_ppe"
+    },
+    {
+      "accounts": [
+        {
+          "init": false,
+          "name": "airdrop",
+          "pda": {
+            "seeds": [
+              {"kind": "const", "value": "airdrop"},
+              {"kind": "arg", "path": "airdrop_id"}
+            ]
+          },
+          "signer": false,
+          "writable": true
+        },
+        {
           "init": false,
           "name": "vault",
           "pda": {
