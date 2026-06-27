@@ -25,10 +25,10 @@ if [[ "${CALLER_HAD_STATE_DIR}" == "1" ]]; then
   export DISTRIBUTIONX_STATE_DIR="${CALLER_DISTRIBUTIONX_STATE_DIR}"
 fi
 
-LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/35d8df0d031315219f94d1546ceb862b0e5b208f}"
-WALLET_BIN="${LEZ_REPO}/target/release/wallet"
+LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/rc5}"
+WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
 if [[ ! -x "${WALLET_BIN}" ]]; then
-  echo "E_DISTRIBUTIONX_LOCAL_WALLET_MISSING: run 'set -a; source .env.local; set +a; lgs setup'" >&2
+  echo "E_DISTRIBUTIONX_LOCAL_WALLET_MISSING: ${WALLET_BIN}" >&2
   exit 2
 fi
 
@@ -36,17 +36,36 @@ default_wallet_home() {
   if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
     printf '%s\n' "${ROOT}/.scaffold/wallet"
   else
-    printf '%s\n' "${HOME}/.nssa/wallet"
+    printf '%s\n' "${HOME}/.lee/wallet"
   fi
 }
 
-WALLET_HOME="${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}"
+WALLET_HOME="${LEE_WALLET_HOME_DIR:-${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}}"
 if [[ ! -f "${WALLET_HOME}/storage.json" ]]; then
   echo "E_DISTRIBUTIONX_WALLET_NOT_BOOTSTRAPPED: ${WALLET_HOME}/storage.json missing" >&2
   echo "  run 'bash scripts/wallet-bootstrap.sh' to create a funded distributor account" >&2
   exit 2
 fi
-export NSSA_WALLET_HOME_DIR="${WALLET_HOME}"
+export LEE_WALLET_HOME_DIR="${WALLET_HOME}"
+
+export CARGO_HOME="${CARGO_HOME:-${ROOT}/target/cargo-home}"
+export RAPIDSNARK_LIB_DIR="${RAPIDSNARK_LIB_DIR:-${ROOT}/target/lez-rc5-build/release/build/rust-rapidsnark-4e8ffacb0415e9be/out/rapidsnark/x86_64}"
+if [[ ! -d "${RAPIDSNARK_LIB_DIR}" ]]; then
+  echo "E_DISTRIBUTIONX_RAPIDSNARK_LIB_DIR_MISSING: ${RAPIDSNARK_LIB_DIR}" >&2
+  exit 2
+fi
+export LOGOS_BLOCKCHAIN_CIRCUITS="${LOGOS_BLOCKCHAIN_CIRCUITS:-${ROOT}/vendor/logos-blockchain-circuits}"
+default_lbc_root_dir() {
+  local cached="${HOME}/.cache/logos/blockchain/logos-blockchain-circuits-v0.5.3-linux-x86_64"
+  if [[ -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/signature" && -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/lib" ]]; then
+    printf '%s\n' "${LOGOS_BLOCKCHAIN_CIRCUITS}"
+  elif [[ -d "${cached}/signature" && -d "${cached}/lib" ]]; then
+    printf '%s\n' "${cached}"
+  else
+    printf '%s\n' "${LOGOS_BLOCKCHAIN_CIRCUITS}"
+  fi
+}
+export LBC_ROOT_DIR="${LBC_ROOT_DIR:-$(default_lbc_root_dir)}"
 
 ADAPTER_ROOT="${DISTRIBUTIONX_ADAPTER_CACHE_DIR:-${ROOT}/target/distributionx-adapters}"
 ADAPTER_DIR="${ADAPTER_ROOT}/local-token-mint-${UID:-$(id -u)}"
@@ -62,23 +81,27 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-common = { path = "${LEZ_REPO}/common" }
+common = { path = "${LEZ_REPO}/lez/common" }
 hex = "0.4.3"
-nssa = { path = "${LEZ_REPO}/nssa" }
-nssa_core = { path = "${LEZ_REPO}/nssa/core" }
+lee = { path = "${LEZ_REPO}/lee/state_machine" }
+lee_core = { path = "${LEZ_REPO}/lee/state_machine/core", features = ["host"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-sequencer_service_rpc = { path = "${LEZ_REPO}/sequencer/service/rpc", features = ["client"] }
+sequencer_service_rpc = { path = "${LEZ_REPO}/lez/sequencer/service/rpc", features = ["client"] }
 tokio = { version = "1.50.0", features = ["rt-multi-thread", "time"] }
 token_core = { path = "${LEZ_REPO}/programs/token/core" }
 url = "2.5.8"
-wallet = { path = "${LEZ_REPO}/wallet" }
+wallet = { path = "${LEZ_REPO}/lez/wallet" }
 EOF
-cp "${LEZ_REPO}/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
+if [[ -f "${LEZ_REPO}/Cargo.lock" ]]; then
+  cp "${LEZ_REPO}/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
+else
+  cargo generate-lockfile --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml"
+fi
 
 cat > "${ADAPTER_DIR}/src/main.rs" <<'EOF'
 use common::HashType;
-use nssa::{Account, AccountId};
+use lee::{Account, AccountId};
 use sequencer_service_rpc::{RpcClient as _, SequencerClientBuilder};
 use serde_json::{json, Value};
 use std::io::{self, Read};
@@ -87,6 +110,7 @@ use std::time::{Duration, Instant};
 use token_core::TokenHolding;
 use url::Url;
 use wallet::{
+    AccountIdentity,
     config::WalletConfigOverrides,
     helperfunctions::{fetch_config_path, fetch_persistent_storage_path},
     program_facades::token::Token,
@@ -130,7 +154,7 @@ fn open_wallet(payload: &Value) -> Result<WalletCore, String> {
         .ok_or("missing sequencer_url")?;
 
     // sequencer_addr lives in wallet_config.json, not env — override below.
-    std::env::set_var("NSSA_WALLET_HOME_DIR", wallet_path);
+    std::env::set_var("LEE_WALLET_HOME_DIR", wallet_path);
 
     let parsed_sequencer: Url = sequencer_url
         .parse()
@@ -174,7 +198,12 @@ fn mint_token(payload: &Value) -> Result<(), String> {
         let (supply_id, _) = wallet_core.create_new_account_public(None);
 
         let tx_hash: HashType = Token(&wallet_core)
-            .send_new_definition(def_id, supply_id, name.clone(), total_supply)
+            .send_new_definition(
+                AccountIdentity::Public(def_id),
+                AccountIdentity::Public(supply_id),
+                name.clone(),
+                total_supply,
+            )
             .await
             .map_err(|e| format!("token send_new_definition: {e:?}"))?;
 
@@ -182,7 +211,6 @@ fn mint_token(payload: &Value) -> Result<(), String> {
         // If the tx fails, no orphan ids are left in storage.json.
         wallet_core
             .store_persistent_data()
-            .await
             .map_err(|e| format!("store after mint: {e}"))?;
 
         // 180s default — the prior 60s window was too short under load.

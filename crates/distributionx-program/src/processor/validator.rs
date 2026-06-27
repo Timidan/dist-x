@@ -4,7 +4,7 @@ use distributionx_circuit::ClaimJournal;
 use risc0_zkvm::Receipt;
 
 pub const EXPECTED_IMAGE_ID_WORDS: [u32; 8] = [
-    2021700558, 3694440392, 3417518589, 1406597505, 2646892967, 2203840848, 319733246, 2797217385,
+    3141513113, 513411627, 2775329122, 1951671961, 2379804717, 2477509641, 2123351257, 474150452,
 ];
 pub const EXPECTED_IMAGE_ID: [u8; 32] = image_id_words_to_bytes(EXPECTED_IMAGE_ID_WORDS);
 
@@ -146,6 +146,30 @@ pub fn claim(
         return Err(ProgramErrorCode(E_BUCKET_OUT_OF_RANGE));
     }
     let amount = airdrop.bucket_table[journal.bucket_id as usize];
+    if vault_balance < amount {
+        return Err(ProgramErrorCode(E_VAULT_INSUFFICIENT));
+    }
+    Ok(amount)
+}
+
+pub fn claim_ppe(
+    airdrop: &Airdrop,
+    _airdrop_id: [u8; 32],
+    bucket_id: u8,
+    _nullifier: [u8; 32],
+    claim_destination_commitment: [u8; 32],
+    vault_balance: u64,
+) -> Result<u64, ProgramErrorCode> {
+    if airdrop.status != 0 {
+        return Err(ProgramErrorCode(E_AIRDROP_CLOSED));
+    }
+    if claim_destination_commitment == [0; 32] {
+        return Err(ProgramErrorCode(E_BAD_DESTINATION_COMMITMENT));
+    }
+    if bucket_id as usize >= airdrop.bucket_table.len() {
+        return Err(ProgramErrorCode(E_BUCKET_OUT_OF_RANGE));
+    }
+    let amount = airdrop.bucket_table[bucket_id as usize];
     if vault_balance < amount {
         return Err(ProgramErrorCode(E_VAULT_INSUFFICIENT));
     }

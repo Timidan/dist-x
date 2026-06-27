@@ -20,6 +20,25 @@ OUT_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-testnet}"
 mkdir -p "${OUT_DIR}"
 
 cd "${ROOT}"
+CARGO_HOME="${CARGO_HOME:-${ROOT}/target/cargo-home}"
+export CARGO_HOME
+RECURSION_SRC_PATH="${RECURSION_SRC_PATH:-${ROOT}/target/debug/build/risc0-circuit-recursion-a1c9201d1968cbdd/out/recursion_zkr.zip}"
+if [[ -f "${RECURSION_SRC_PATH}" ]]; then
+  export RECURSION_SRC_PATH
+fi
+RAPIDSNARK_LIB_DIR="${RAPIDSNARK_LIB_DIR:-${ROOT}/target/lez-rc5-build/release/build/rust-rapidsnark-4e8ffacb0415e9be/out/rapidsnark/x86_64}"
+if [[ -d "${RAPIDSNARK_LIB_DIR}" ]]; then
+  export RAPIDSNARK_LIB_DIR
+fi
+LOGOS_BLOCKCHAIN_CIRCUITS="${LOGOS_BLOCKCHAIN_CIRCUITS:-${ROOT}/vendor/logos-blockchain-circuits}"
+cached_lbc="${HOME}/.cache/logos/blockchain/logos-blockchain-circuits-v0.5.3-linux-x86_64"
+if [[ -z "${LBC_ROOT_DIR:-}" ]]; then
+  if [[ -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/signature" && -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/lib" ]]; then
+    export LBC_ROOT_DIR="${LOGOS_BLOCKCHAIN_CIRCUITS}"
+  elif [[ -d "${cached_lbc}/signature" && -d "${cached_lbc}/lib" ]]; then
+    export LBC_ROOT_DIR="${cached_lbc}"
+  fi
+fi
 cargo build -q -p distributionx-program --features spel-idl
 cargo build -q -p example_program_deployment_methods
 
@@ -78,17 +97,19 @@ PY
 }
 
 deploy_wallet_bin() {
-  local lez_repo="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/35d8df0d031315219f94d1546ceb862b0e5b208f}"
-  printf '%s\n' "${LEZ_WALLET_BIN:-${lez_repo}/target/release/wallet}"
+  local lez_repo="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/rc5}"
+  printf '%s\n' "${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
 }
 
 deploy_wallet_home() {
-  if [[ -n "${NSSA_WALLET_HOME_DIR:-}" ]]; then
+  if [[ -n "${LEE_WALLET_HOME_DIR:-}" ]]; then
+    printf '%s\n' "${LEE_WALLET_HOME_DIR}"
+  elif [[ -n "${NSSA_WALLET_HOME_DIR:-}" ]]; then
     printf '%s\n' "${NSSA_WALLET_HOME_DIR}"
   elif [[ -d "${ROOT}/.scaffold/wallet" ]]; then
     printf '%s\n' "${ROOT}/.scaffold/wallet"
   else
-    printf '%s\n' "${HOME}/.nssa/wallet"
+    printf '%s\n' "${HOME}/.lee/wallet"
   fi
 }
 
@@ -105,9 +126,9 @@ run_wallet_deploy() {
     return 2
   fi
 
-  echo "$ NSSA_WALLET_HOME_DIR=${wallet_home} ${wallet_bin} deploy-program ${PROGRAM_BINARY}"
+  echo "$ LEE_WALLET_HOME_DIR=${wallet_home} ${wallet_bin} deploy-program ${PROGRAM_BINARY}"
   local wallet_output
-  wallet_output="$(env NSSA_WALLET_HOME_DIR="${wallet_home}" "${wallet_bin}" deploy-program "${PROGRAM_BINARY}" 2>&1)" || {
+  wallet_output="$(env LEE_WALLET_HOME_DIR="${wallet_home}" "${wallet_bin}" deploy-program "${PROGRAM_BINARY}" 2>&1)" || {
     printf '%s\n' "${wallet_output}"
     return 1
   }

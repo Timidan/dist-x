@@ -3,7 +3,7 @@
 
 use distributionx_circuit::{verify_claim_constraints, ClaimJournal, ClaimWitness};
 use distributionx_wallet_ref::MerklePathNode;
-use nssa_core::account::{Account, Data};
+use lee_core::account::{Account, Data};
 use risc0_binfmt::Digestible;
 use risc0_zkvm::{InnerReceipt, MaybePruned, Receipt, ReceiptClaim, VerifierContext};
 use spel_framework::prelude::*;
@@ -30,7 +30,7 @@ const E_EXPIRY_INVALID: u32 = 16;
 const E_NULLIFIER_MISMATCH: u32 = 17;
 
 const EXPECTED_IMAGE_ID_WORDS: [u32; 8] = [
-    2021700558, 3694440392, 3417518589, 1406597505, 2646892967, 2203840848, 319733246, 2797217385,
+    3141513113, 513411627, 2775329122, 1951671961, 2379804717, 2477509641, 2123351257, 474150452,
 ];
 const EXPECTED_IMAGE_ID: [u8; 32] = image_id_words_to_bytes(EXPECTED_IMAGE_ID_WORDS);
 
@@ -537,6 +537,99 @@ mod distributionx {
                 write_data(airdrop.account, &state)?,
                 nullifier_post,
                 vault_post,
+            ],
+            vec![],
+        ))
+    }
+
+    #[instruction]
+    #[allow(clippy::too_many_arguments)]
+    pub fn claim_ppe(
+        #[account(mut, pda = [literal("airdrop"), arg("airdrop_id")])] airdrop: AccountWithMetadata,
+        #[account(init, pda = [literal("nullifier"), arg("airdrop_id"), arg("nullifier")])]
+        nullifier_record: AccountWithMetadata,
+        #[account(mut, pda = [literal("vault"), arg("airdrop_id")])] vault: AccountWithMetadata,
+        #[account(init)] recipient: AccountWithMetadata,
+        airdrop_id: [u8; 32],
+        bucket_id: u8,
+        nullifier: [u8; 32],
+        claim_destination_commitment: [u8; 32],
+        claimant_address: [u8; 32],
+        salt: [u8; 32],
+        claim_sig: Vec<u8>,
+        merkle_siblings: Vec<[u8; 32]>,
+        merkle_path_is_right: Vec<bool>,
+        now_unix: i64,
+    ) -> SpelResult {
+        if !nullifier_record.account.data.is_empty() {
+            return Err(program_error(
+                E_ALREADY_CLAIMED,
+                "nullifier account is already initialized",
+            ));
+        }
+        if claim_destination_commitment == [0u8; 32]
+            || account_id(&recipient) != claim_destination_commitment
+        {
+            return Err(program_error(
+                E_BAD_DESTINATION_COMMITMENT,
+                "destination commitment must match the private recipient account",
+            ));
+        }
+
+        let mut state = read_airdrop(&airdrop)?;
+        ensure_airdrop_id(&state, airdrop_id)?;
+        ensure_active(&state, now_unix)?;
+        ensure_vault(&state, &vault)?;
+        if bucket_id as usize >= state.bucket_table.len() {
+            return Err(program_error(
+                E_BUCKET_OUT_OF_RANGE,
+                "bucket id is outside the configured table",
+            ));
+        }
+
+        let journal = ClaimJournal::new(
+            airdrop_id,
+            state.merkle_root,
+            bucket_id,
+            nullifier,
+            claim_destination_commitment,
+        );
+        verify_claim_witness(
+            &journal,
+            claimant_address,
+            salt,
+            claim_sig,
+            merkle_siblings,
+            merkle_path_is_right,
+        )?;
+
+        let amount = state.bucket_table[bucket_id as usize];
+        let new_total_claimed = checked_add_u64(state.total_claimed, amount)?;
+        if new_total_claimed > state.total_funded || vault.account.balance < u128::from(amount) {
+            return Err(program_error(
+                E_VAULT_INSUFFICIENT,
+                "vault cannot cover claim amount",
+            ));
+        }
+        state.total_claimed = new_total_claimed;
+
+        let mut vault_post = vault.account;
+        vault_post.balance = checked_sub_u128(vault_post.balance, u128::from(amount))?;
+
+        let nullifier_state = NullifierState {
+            claimed_at: now_unix,
+        };
+        let nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
+
+        let mut recipient_post = recipient.account;
+        recipient_post.balance = checked_add_u128(recipient_post.balance, u128::from(amount))?;
+
+        Ok(SpelOutput::execute(
+            vec![
+                write_data(airdrop.account, &state)?,
+                nullifier_post,
+                vault_post,
+                recipient_post,
             ],
             vec![],
         ))

@@ -288,21 +288,21 @@ default_wallet_home() {
   if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
     printf '%s\n' "${ROOT}/.scaffold/wallet"
   else
-    printf '%s\n' "${HOME}/.nssa/wallet"
+    printf '%s\n' "${HOME}/.lee/wallet"
   fi
 }
 
 if [[ "${mode}" == "localnet" ]]; then
-  export NSSA_WALLET_HOME_DIR="${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}"
+  export LEE_WALLET_HOME_DIR="${LEE_WALLET_HOME_DIR:-${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}}"
   export DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE="${DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE:-1}"
   LEZ_DEPLOYER_WALLET="$(bash "${ROOT}/scripts/wallet-bootstrap.sh")"
   export LEZ_DEPLOYER_WALLET
   if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
-    LOCAL_WALLET_BIN="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/35d8df0d031315219f94d1546ceb862b0e5b208f}/target/release/wallet"
+    LOCAL_WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
     RECOVERY_CANDIDATE=""
     if [[ -x "${LOCAL_WALLET_BIN}" ]]; then
       RECOVERY_CANDIDATE="$("${LOCAL_WALLET_BIN}" account ls 2>/dev/null \
-        | awk '/^Preconfigured Public\// { print $2 }' \
+        | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^Public\//) print $i }' \
         | grep -vFx -- "${LEZ_DEPLOYER_WALLET}" \
         | head -n 1 || true)"
     fi
@@ -504,8 +504,11 @@ else
     echo "claim did not produce a shielded destination packet (recipient_npk/recipient_vpk missing)" >&2
     exit 1
   fi
-  if jq -e '.private_claim != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
-    echo "claim.tx unexpectedly carries private_claim under the default receipt path" >&2
+  # Default path is now claim_ppe (privacy-preserving execution): claim.tx carries the witness
+  # locally as the PPE prover's input. On-chain witness privacy is guaranteed by the PPE message
+  # format (it carries no instruction data / witness fields), not by stripping the local claim.tx.
+  if ! jq -e '.private_claim != null' "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >/dev/null; then
+    echo "claim_ppe path: claim.tx is missing the private_claim witness needed for PPE proving" >&2
     exit 1
   fi
 fi

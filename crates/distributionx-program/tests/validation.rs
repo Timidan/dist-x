@@ -2,7 +2,7 @@ use distributionx_circuit::ClaimJournal;
 use distributionx_program::errors::*;
 use distributionx_program::idl::emit_idl_json;
 use distributionx_program::processor::{
-    claim, close, fund, init_airdrop, InitAirdropArgs, VerifiedClaimJournal,
+    claim, claim_ppe, close, fund, init_airdrop, InitAirdropArgs, VerifiedClaimJournal,
 };
 
 fn verified(journal: ClaimJournal) -> VerifiedClaimJournal {
@@ -66,6 +66,29 @@ fn claim_rejects_journal_mismatches_and_closed_airdrop() {
 }
 
 #[test]
+fn claim_ppe_validates_inline_witness_settlement_without_receipt() {
+    let mut airdrop = init_airdrop(InitAirdropArgs::valid_for_test(), 100).unwrap();
+    airdrop.total_funded = 100;
+
+    let amount = claim_ppe(&airdrop, [1; 32], 0, [8; 32], [9; 32], 100)
+        .expect("PPE claim settlement should not require a Risc0 receipt");
+    assert_eq!(amount, 100);
+
+    assert_eq!(
+        claim_ppe(&airdrop, [1; 32], 0, [8; 32], [0; 32], 100)
+            .unwrap_err()
+            .0,
+        E_BAD_DESTINATION_COMMITMENT
+    );
+    assert_eq!(
+        claim_ppe(&airdrop, [1; 32], 9, [8; 32], [9; 32], 100)
+            .unwrap_err()
+            .0,
+        E_BUCKET_OUT_OF_RANGE
+    );
+}
+
+#[test]
 fn close_is_distributor_only_and_allowed_before_expiry() {
     let mut airdrop = init_airdrop(InitAirdropArgs::valid_for_test(), 100).unwrap();
     assert_eq!(
@@ -82,6 +105,8 @@ fn idl_contains_all_instructions_and_error_codes() {
     assert!(idl.contains("\"init_airdrop\""));
     assert!(idl.contains("\"fund\""));
     assert!(idl.contains("\"claim\""));
+    assert!(idl.contains("\"claim_private\""));
+    assert!(idl.contains("\"claim_ppe\""));
     assert!(idl.contains("\"close\""));
     assert!(idl.contains("\"E_BAD_PROOF\""));
     assert!(idl.contains("\"E_ALREADY_CLAIMED\""));

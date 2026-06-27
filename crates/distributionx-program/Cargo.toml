@@ -14,7 +14,7 @@ distributionx-circuit = { path = "../distributionx-circuit" }
 distributionx-tree = { path = "../distributionx-tree" }
 distributionx-wallet-ref = { path = "../distributionx-wallet-ref", default-features = false }
 spel-framework.workspace = true
-nssa_core.workspace = true
+lee_core = { workspace = true, features = ["host"] }
 risc0-binfmt = "3.0.4"
 risc0-zkvm.workspace = true
 serde.workspace = true

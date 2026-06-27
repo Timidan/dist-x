@@ -1,9 +1,11 @@
 use crate::args::{Cli, Command};
 use distributionx_circuit::{ClaimJournal, ClaimWitness};
 use distributionx_client::{
-    build_distribution, compute_destination_commitment, prepare_claim,
+    build_distribution, compute_destination_commitment, compute_private_account_id,
+    generate_shielded_destination, prepare_claim,
     relayer::{RelayerSubmitRequest, RelayerSubmitResponse},
-    DistributionDraft, DistributionXClientError, PreparedClaim, ShieldedDestinationPacket,
+    DistributionDraft, DistributionXClientError, PreparedClaim, ShieldedDestination,
+    ShieldedDestinationPacket,
 };
 use distributionx_program::processor::{
     claim as program_claim, InitAirdropArgs, VerifiedClaimJournal,
@@ -127,6 +129,8 @@ struct ClaimTxFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     recipient_vpk: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    recipient_identifier_le: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     private_claim: Option<PrivateClaimTxFile>,
     airdrop_id: [u8; 32],
     nullifier: [u8; 32],
@@ -164,7 +168,16 @@ struct TokenSettlementRequest {
     token_id: String,
     source_account: String,
     recipient_account: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recipient_identifier_le: Option<String>,
     amount: u64,
+}
+
+struct ShieldedDestinationFiles {
+    claim_destination_commitment: [u8; 32],
+    claim_destination_commitment_path: PathBuf,
+    shielded_destination_path: PathBuf,
+    shielded_destination_keys_path: PathBuf,
 }
 
 pub fn run(cli: Cli) {
@@ -258,6 +271,7 @@ fn run_inner(cli: Cli) -> CliResult<()> {
         Command::InspectDestination { destination_packet } => {
             inspect_destination(Path::new(&destination_packet))
         }
+        Command::CreateDestination { out_dir } => create_destination(Path::new(&out_dir)),
         Command::InspectCsv { csv } => inspect_csv(Path::new(&csv)),
         Command::PadCsv {
             input,
@@ -869,7 +883,7 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
         if amount > state.total_funded.saturating_sub(state.total_claimed) {
             return Err(boxed_err("E_PROGRAM_7"));
         }
-        let token_settlement = token_settlement_for_claim(&state, &claim_tx.recipient, amount);
+        let token_settlement = token_settlement_for_claim(&state, &claim_tx, amount)?;
         let tx_id = submit_claim_to_testnet(
             None,
             relayer,
@@ -922,7 +936,7 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
         state.total_funded.saturating_sub(state.total_claimed),
     )
     .map_err(|err| boxed_err(format!("E_PROGRAM_{}", err.0)))?;
-    let token_settlement = token_settlement_for_claim(&state, &claim_tx.recipient, amount);
+    let token_settlement = token_settlement_for_claim(&state, &claim_tx, amount)?;
     let tx_id = submit_claim_to_testnet(
         Some(&proof),
         relayer,
@@ -954,18 +968,47 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
 
 fn token_settlement_for_claim(
     state: &LocalAirdropState,
-    recipient_account: &str,
+    claim_tx: &ClaimTxFile,
     amount: u64,
-) -> Option<TokenSettlementRequest> {
+) -> CliResult<Option<TokenSettlementRequest>> {
     if state.token_source_account.trim().is_empty() || amount == 0 {
-        return None;
+        return Ok(None);
     }
-    Some(TokenSettlementRequest {
+    let (recipient_account, recipient_identifier_le) =
+        token_settlement_recipient(claim_tx)?;
+    Ok(Some(TokenSettlementRequest {
         token_id: state.token_id.clone(),
         source_account: state.token_source_account.clone(),
-        recipient_account: recipient_account.to_owned(),
+        recipient_account,
+        recipient_identifier_le,
         amount,
-    })
+    }))
+}
+
+fn token_settlement_recipient(
+    claim_tx: &ClaimTxFile,
+) -> CliResult<(String, Option<String>)> {
+    if claim_tx.private_claim.is_none() {
+        return Ok((claim_tx.recipient.clone(), None));
+    }
+    let npk = claim_tx
+        .recipient_npk
+        .as_deref()
+        .ok_or_else(|| boxed_err("E_TOKEN_SETTLEMENT_RECIPIENT_NPK_MISSING"))?;
+    let identifier_le = claim_tx
+        .recipient_identifier_le
+        .as_deref()
+        .ok_or_else(|| boxed_err("E_TOKEN_SETTLEMENT_RECIPIENT_IDENTIFIER_MISSING"))?;
+    let npk = parse_hex_32(npk)?;
+    let identifier = parse_hex_16_le_u128(identifier_le)?;
+    let token_identifier = identifier
+        .checked_add(1)
+        .ok_or_else(|| boxed_err("E_TOKEN_SETTLEMENT_RECIPIENT_IDENTIFIER_OVERFLOW"))?;
+    let account_id = compute_private_account_id(npk, token_identifier);
+    Ok((
+        format!("Private/{}", hex::encode(account_id)),
+        Some(hex::encode(token_identifier.to_le_bytes())),
+    ))
 }
 
 fn verify(airdrop: &str, proof: &str) -> CliResult<()> {
@@ -1055,10 +1098,73 @@ fn inspect_destination(destination_packet: &Path) -> CliResult<()> {
         "{}",
         serde_json::json!({
             "status": "DESTINATION_PACKET_OK",
-            "claim_destination_commitment": hex::encode(commitment)
+            "claim_destination_commitment": hex::encode(commitment),
+            "recipient_npk": hex::encode(packet.npk),
+            "recipient_vpk_len": packet.vpk.len(),
+            "recipient_identifier_le": hex::encode(packet.identifier_le)
         })
     );
     Ok(())
+}
+
+fn create_destination(out_dir: &Path) -> CliResult<()> {
+    let files = write_shielded_destination_files(out_dir)?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "status": "DESTINATION_CREATED",
+            "claim_destination_commitment": hex::encode(files.claim_destination_commitment),
+            "claim_destination_commitment_path": files.claim_destination_commitment_path.display().to_string(),
+            "shielded_destination": files.shielded_destination_path.display().to_string(),
+            "shielded_destination_keys": files.shielded_destination_keys_path.display().to_string()
+        })
+    );
+    Ok(())
+}
+
+fn write_shielded_destination_files(out_dir: &Path) -> CliResult<ShieldedDestinationFiles> {
+    fs::create_dir_all(out_dir)?;
+    let destination = generate_shielded_destination();
+    let claim_destination_commitment = compute_destination_commitment(&destination.packet);
+    let claim_destination_commitment_path = out_dir.join("claim_destination_commitment.txt");
+    let shielded_destination_path = out_dir.join("shielded_destination.json");
+    let shielded_destination_keys_path = out_dir.join("shielded_destination_keys.json");
+
+    fs::write(
+        &claim_destination_commitment_path,
+        hex::encode(claim_destination_commitment),
+    )?;
+    write_json(&shielded_destination_path, &destination.packet)?;
+    write_json(
+        &shielded_destination_keys_path,
+        &shielded_destination_keys_json(&destination, claim_destination_commitment),
+    )?;
+
+    Ok(ShieldedDestinationFiles {
+        claim_destination_commitment,
+        claim_destination_commitment_path,
+        shielded_destination_path,
+        shielded_destination_keys_path,
+    })
+}
+
+fn shielded_destination_keys_json(
+    destination: &ShieldedDestination,
+    claim_destination_commitment: [u8; 32],
+) -> serde_json::Value {
+    serde_json::json!({
+        "version": 1,
+        "account_kind": "Private/Regular",
+        "account_id": format!("Private/{}", hex::encode(claim_destination_commitment)),
+        "identifier": destination.packet.identifier().to_string(),
+        "identifier_le": hex::encode(destination.packet.identifier_le),
+        "secret_spending_key": hex::encode(destination.secrets.secret_spending_key),
+        "nullifier_secret_key": hex::encode(destination.secrets.nullifier_secret_key),
+        "viewing_secret_key_d": hex::encode(destination.secrets.viewing_secret_key_d),
+        "viewing_secret_key_z": hex::encode(destination.secrets.viewing_secret_key_z),
+        "nullifier_public_key": hex::encode(destination.packet.npk),
+        "viewing_public_key": hex::encode(&destination.packet.vpk)
+    })
 }
 
 fn inspect_csv(csv_path: &Path) -> CliResult<()> {
@@ -1550,6 +1656,9 @@ fn resolve_helper_script(env_var: &str, name: &str) -> CliResult<PathBuf> {
 }
 
 fn default_wallet_path() -> String {
+    if let Ok(path) = std::env::var("LEE_WALLET_HOME_DIR") {
+        return path;
+    }
     if let Ok(path) = std::env::var("NSSA_WALLET_HOME_DIR") {
         return path;
     }
@@ -1618,8 +1727,6 @@ fn sample_fixture(out_dir: &Path, claimant_count: usize) -> CliResult<()> {
     let wallet_path = out_dir.join("wallet.seed");
     let admin_seed_path = out_dir.join("admin.seed");
     let keys_path = out_dir.join("fixture-keys.json");
-    let claim_destination_commitment_path = out_dir.join("claim_destination_commitment.txt");
-    let shielded_destination_path = out_dir.join("shielded_destination.json");
 
     let mut claimants = Vec::with_capacity(claimant_count);
     for index in 1..=claimant_count {
@@ -1649,18 +1756,8 @@ fn sample_fixture(out_dir: &Path, claimant_count: usize) -> CliResult<()> {
     let admin_public_key_hex = hex::encode(admin_ks.public_ed25519());
     fs::write(&admin_seed_path, &admin_seed_hex)?;
 
-    let shielded_destination = ShieldedDestinationPacket {
-        npk: [42u8; 32],
-        vpk: hex::decode("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")?,
-        identifier_le: [44u8; 16],
-    };
-    let destination_commitment = compute_destination_commitment(&shielded_destination);
+    let destination_files = write_shielded_destination_files(out_dir)?;
     fs::write(&csv_path, csv)?;
-    fs::write(
-        &claim_destination_commitment_path,
-        hex::encode(destination_commitment),
-    )?;
-    write_json(&shielded_destination_path, &shielded_destination)?;
     write_json(
         &keys_path,
         &serde_json::json!({
@@ -1684,8 +1781,9 @@ fn sample_fixture(out_dir: &Path, claimant_count: usize) -> CliResult<()> {
             "keys": keys_path.display().to_string(),
             "admin_account": format!("Public/{admin_public_key_hex}"),
             "admin_seed": admin_seed_path.display().to_string(),
-            "claim_destination_commitment": claim_destination_commitment_path.display().to_string(),
-            "shielded_destination": shielded_destination_path.display().to_string()
+            "claim_destination_commitment": destination_files.claim_destination_commitment_path.display().to_string(),
+            "shielded_destination": destination_files.shielded_destination_path.display().to_string(),
+            "shielded_destination_keys": destination_files.shielded_destination_keys_path.display().to_string()
         })
     );
     Ok(())
@@ -1710,12 +1808,7 @@ fn write_claim_tx(
     }
     write_json(
         path,
-        &ClaimTxFile::from_prepared(
-            prepared,
-            proof,
-            destination_packet,
-            claim_private_opt_in_for_claim_tx(),
-        )?,
+        &ClaimTxFile::from_prepared(prepared, proof, destination_packet)?,
     )
 }
 
@@ -1909,6 +2002,14 @@ fn parse_hex_4(raw: &str) -> CliResult<[u8; 4]> {
         .map_err(|_| boxed_err(format!("expected 4-byte hex value: {raw}")))
 }
 
+fn parse_hex_16_le_u128(raw: &str) -> CliResult<u128> {
+    let bytes = hex::decode(raw)?;
+    let bytes: [u8; 16] = bytes
+        .try_into()
+        .map_err(|_| boxed_err(format!("expected 16-byte hex value: {raw}")))?;
+    Ok(u128::from_le_bytes(bytes))
+}
+
 fn parse_hex_vec(raw: &str) -> CliResult<Vec<u8>> {
     Ok(hex::decode(raw)?)
 }
@@ -2009,25 +2110,33 @@ impl ClaimTxFile {
         prepared: &PreparedClaim,
         proof: Option<&ProofFile>,
         destination_packet: Option<&ShieldedDestinationPacket>,
-        include_private_claim: bool,
     ) -> CliResult<Self> {
         let journal = match proof {
             Some(proof) => proof.to_journal()?,
             None => prepared.proof.journal.clone(),
         };
-        // The witness-bearing private_claim block is only emitted when the
-        // caller opts into the in-program claim_private verifier. Under the
-        // default receipt-based `claim` path the witness stays inside the
-        // Risc0 zkVM and never leaves the claimant's machine.
-        let include_private_claim = include_private_claim && destination_packet.is_some();
+        let recipient_prefix = if let Some(packet) = destination_packet {
+            let destination_commitment = compute_destination_commitment(packet);
+            if destination_commitment != journal.claim_destination_commitment {
+                return Err(boxed_err("E_DESTINATION_PACKET_MISMATCH"));
+            }
+            "Private"
+        } else {
+            "Public"
+        };
+        // With a shielded destination, the local submit hook uses this block to
+        // prove `claim_ppe` privately. It is local proving input, not PPE tx
+        // message data. Without a destination packet, keep the receipt path.
         Ok(Self {
             recipient: format!(
-                "Public/{}",
+                "{recipient_prefix}/{}",
                 hex::encode(journal.claim_destination_commitment)
             ),
             recipient_npk: destination_packet.map(|packet| hex::encode(packet.npk)),
             recipient_vpk: destination_packet.map(|packet| hex::encode(&packet.vpk)),
-            private_claim: if include_private_claim {
+            recipient_identifier_le: destination_packet
+                .map(|packet| hex::encode(packet.identifier_le)),
+            private_claim: if destination_packet.is_some() {
                 Some(PrivateClaimTxFile::from_prepared(prepared))
             } else {
                 None
@@ -2040,16 +2149,6 @@ impl ClaimTxFile {
             },
         })
     }
-}
-
-fn claim_private_opt_in_for_claim_tx() -> bool {
-    matches!(
-        std::env::var("DISTRIBUTIONX_USE_CLAIM_PRIVATE")
-            .ok()
-            .as_deref()
-            .map(str::trim),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    )
 }
 
 impl PrivateClaimTxFile {
@@ -2271,8 +2370,32 @@ fn boxed_err(message: impl Into<String>) -> Box<dyn std::error::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use distributionx_client::proof::ProofArtifact;
+    use distributionx_client::{proof::ProofArtifact, LEZ_VIEWING_PUBLIC_KEY_LEN};
     use distributionx_wallet_ref::MerklePathNode;
+
+    #[test]
+    fn sample_fixture_writes_lez_private_destination_packet() {
+        let out_dir = std::env::temp_dir().join(format!(
+            "distributionx-sample-fixture-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos()
+        ));
+
+        sample_fixture(&out_dir, 1).expect("sample fixture");
+        let packet = read_destination_packet(&out_dir.join("shielded_destination.json"))
+            .expect("shielded destination packet");
+
+        assert_eq!(packet.vpk.len(), LEZ_VIEWING_PUBLIC_KEY_LEN);
+        assert_eq!(
+            packet.identifier(),
+            distributionx_client::DEFAULT_PRIVATE_ACCOUNT_IDENTIFIER
+        );
+        assert!(out_dir.join("shielded_destination_keys.json").exists());
+
+        let _ = fs::remove_dir_all(out_dir);
+    }
 
     #[test]
     fn claim_tx_file_contains_local_submit_envelope() {
@@ -2309,11 +2432,12 @@ mod tests {
             journal: JournalFile::from_journal(&journal),
         };
 
-        let tx = ClaimTxFile::from_prepared(&prepared, Some(&proof), None, false)
-            .expect("claim tx from proof");
+        let tx =
+            ClaimTxFile::from_prepared(&prepared, Some(&proof), None).expect("claim tx from proof");
         assert_eq!(tx.recipient, format!("Public/{}", hex::encode([9u8; 32])));
         assert!(tx.recipient_npk.is_none());
         assert!(tx.recipient_vpk.is_none());
+        assert!(tx.recipient_identifier_le.is_none());
         assert!(tx.private_claim.is_none());
         assert_eq!(tx.airdrop_id, [6u8; 32]);
         assert_eq!(tx.nullifier, [8u8; 32]);
@@ -2339,8 +2463,10 @@ mod tests {
     }
 
     #[test]
-    fn claim_tx_file_carries_private_witness_for_private_destination() {
-        let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], [9u8; 32]);
+    fn claim_tx_file_carries_local_ppe_witness_for_private_destination() {
+        let destination = generate_shielded_destination().packet;
+        let destination_commitment = compute_destination_commitment(&destination);
+        let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], destination_commitment);
         let prepared = PreparedClaim {
             proof: ProofArtifact {
                 journal: journal.clone(),
@@ -2366,57 +2492,111 @@ mod tests {
             receipt_bytes: "0a".to_owned(),
             journal: JournalFile::from_journal(&journal),
         };
-        let destination = ShieldedDestinationPacket {
-            npk: [11u8; 32],
-            vpk: vec![12u8; 33],
-            identifier_le: [13u8; 16],
-        };
 
-        let default_tx =
-            ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination), false)
-                .expect("claim tx default");
+        let tx = ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination))
+            .expect("claim tx default");
         assert_eq!(
-            default_tx.recipient_npk.as_deref(),
-            Some(hex::encode([11u8; 32]).as_str())
+            tx.recipient,
+            format!("Private/{}", hex::encode(destination_commitment))
         );
-        assert!(default_tx.recipient_vpk.is_some());
+        assert_eq!(
+            tx.recipient_npk.as_deref(),
+            Some(hex::encode(destination.npk).as_str())
+        );
+        assert_eq!(
+            tx.recipient_vpk.as_deref().map(|vpk| vpk.len()),
+            Some(LEZ_VIEWING_PUBLIC_KEY_LEN * 2)
+        );
+        assert_eq!(
+            tx.recipient_identifier_le.as_deref(),
+            Some(hex::encode(destination.identifier_le).as_str())
+        );
         assert!(
-            default_tx.private_claim.is_none(),
-            "default receipt path must strip the witness from claim.tx",
+            tx.private_claim.is_some(),
+            "shielded destination claims need local PPE witness input",
         );
-        let encoded_default =
-            String::from_utf8(serde_json::to_vec(&default_tx).expect("default claim tx JSON"))
-                .expect("default claim tx utf8");
-        for private_field in [
-            "claimant_address",
-            "salt",
-            "claim_sig",
-            "merkle_siblings",
-            "merkle_path_is_right",
-        ] {
-            assert!(
-                !encoded_default.contains(private_field),
-                "default claim tx leaked {private_field}",
-            );
-        }
 
-        let opt_in_tx =
-            ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination), true)
-                .expect("claim tx opt-in");
-        assert_eq!(
-            opt_in_tx.recipient_npk.as_deref(),
-            Some(hex::encode([11u8; 32]).as_str())
-        );
-        assert!(opt_in_tx.recipient_vpk.is_some());
-        let private_claim = opt_in_tx
-            .private_claim
-            .expect("private claim witness under opt-in");
+        let private_claim = tx.private_claim.expect("private claim witness for PPE");
         assert_eq!(private_claim.bucket_id, 1);
-        assert_eq!(private_claim.claim_destination_commitment, [9u8; 32]);
+        assert_eq!(
+            private_claim.claim_destination_commitment,
+            destination_commitment
+        );
         assert_eq!(private_claim.claimant_address, [1u8; 32]);
         assert_eq!(private_claim.salt, [2u8; 32]);
         assert_eq!(private_claim.claim_sig, vec![3u8; 64]);
         assert_eq!(private_claim.merkle_siblings, vec![[4u8; 32]]);
         assert_eq!(private_claim.merkle_path_is_right, vec![true]);
+    }
+
+    #[test]
+    fn token_settlement_uses_sibling_private_identifier_for_ppe_recipient() {
+        let destination = generate_shielded_destination().packet;
+        let destination_commitment = compute_destination_commitment(&destination);
+        let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], destination_commitment);
+        let prepared = PreparedClaim {
+            proof: ProofArtifact {
+                journal: journal.clone(),
+                receipt_bytes: vec![10u8],
+            },
+            amount_bucket: 1,
+            witness: ClaimWitness {
+                address: [1u8; 32],
+                salt: [2u8; 32],
+                claim_sig: [3u8; 64],
+                merkle_path: vec![],
+            },
+        };
+        let proof = ProofFile {
+            proof_mode: "risc0-zkvm-receipt".to_owned(),
+            risc0_dev_mode: "1".to_owned(),
+            risc0_real_proof: "OK".to_owned(),
+            airdrop_id: hex::encode(journal.airdrop_id),
+            amount_bucket: 1,
+            receipt_bytes: "0a".to_owned(),
+            journal: JournalFile::from_journal(&journal),
+        };
+        let tx = ClaimTxFile::from_prepared(&prepared, Some(&proof), Some(&destination))
+            .expect("shielded claim tx");
+
+        let (token_recipient, token_identifier_le) =
+            token_settlement_recipient(&tx).expect("token settlement recipient");
+
+        assert_ne!(token_recipient, tx.recipient);
+        assert_eq!(
+            token_recipient,
+            format!(
+                "Private/{}",
+                hex::encode(compute_private_account_id(destination.npk, 1))
+            )
+        );
+        assert_eq!(
+            token_identifier_le.as_deref(),
+            Some(hex::encode(1u128.to_le_bytes()).as_str())
+        );
+    }
+
+    #[test]
+    fn claim_tx_file_rejects_destination_packet_commitment_mismatch() {
+        let destination = generate_shielded_destination().packet;
+        let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], [9u8; 32]);
+        let prepared = PreparedClaim {
+            proof: ProofArtifact {
+                journal,
+                receipt_bytes: vec![10u8],
+            },
+            amount_bucket: 1,
+            witness: ClaimWitness {
+                address: [1u8; 32],
+                salt: [2u8; 32],
+                claim_sig: [3u8; 64],
+                merkle_path: vec![],
+            },
+        };
+
+        let err = ClaimTxFile::from_prepared(&prepared, None, Some(&destination))
+            .expect_err("mismatched destination packet should be rejected");
+
+        assert!(err.to_string().contains("E_DESTINATION_PACKET_MISMATCH"));
     }
 }

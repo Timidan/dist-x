@@ -326,6 +326,66 @@ mod tests {
                     ]
                 },
                 {
+                    "name": "claim_ppe",
+                    "accounts": [
+                        {
+                            "name": "airdrop",
+                            "writable": true,
+                            "signer": false,
+                            "init": false,
+                            "pda": {
+                                "seeds": [
+                                    {"kind": "const", "value": "airdrop"},
+                                    {"kind": "arg", "path": "airdrop_id"}
+                                ]
+                            }
+                        },
+                        {
+                            "name": "nullifier_record",
+                            "writable": true,
+                            "signer": false,
+                            "init": true,
+                            "pda": {
+                                "seeds": [
+                                    {"kind": "const", "value": "nullifier"},
+                                    {"kind": "arg", "path": "airdrop_id"},
+                                    {"kind": "arg", "path": "nullifier"}
+                                ]
+                            }
+                        },
+                        {
+                            "name": "vault",
+                            "writable": true,
+                            "signer": false,
+                            "init": false,
+                            "pda": {
+                                "seeds": [
+                                    {"kind": "const", "value": "vault"},
+                                    {"kind": "arg", "path": "airdrop_id"}
+                                ]
+                            }
+                        },
+                        {
+                            "name": "recipient",
+                            "writable": true,
+                            "signer": false,
+                            "init": true
+                        }
+                    ],
+                    "args": [
+                        {"name": "airdrop_id", "type": {"array": ["u8", 32]}},
+                        {"name": "bucket_id", "type": "u8"},
+                        {"name": "nullifier", "type": {"array": ["u8", 32]}},
+                        {"name": "claim_destination_commitment", "type": {"array": ["u8", 32]}},
+                        {"name": "claimant_address", "type": {"array": ["u8", 32]}},
+                        {"name": "salt", "type": {"array": ["u8", 32]}},
+                        {"name": "claim_sig", "type": {"vec": "u8"}},
+                        {"name": "merkle_siblings", "type": {"vec": {"array": ["u8", 32]}}},
+                        {"name": "merkle_path_is_right", "type": {"vec": "bool"}},
+                        {"name": "now_unix", "type": "i64"}
+                    ]
+                },
+                {
                     "name": "close",
                     "accounts": [
                         {

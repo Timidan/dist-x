@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
+exclude = [".scaffold/cache/repos/lez/rc5"]
 members = [
   "methods",
   "methods/guest",
-  "vendor/nssa_core",
   "crates/lez-client-gen",
   "crates/distributionx-wallet-ref",
   "crates/distributionx-tree",
@@ -25,10 +25,11 @@ unsafe_code = "warn"
 risc0-zkvm = { version = "3.0.5", default-features = false, features = ["std"] }
 risc0-build = "3.0.5"
 
-spel-framework = { git = "https://github.com/jimmy-claw/lez-framework.git", rev = "080a0a5bd62a94ff20a82a953b93806b066afaca" }
-spel-framework-core = { git = "https://github.com/jimmy-claw/lez-framework.git", rev = "080a0a5bd62a94ff20a82a953b93806b066afaca" }
-spel-client-gen = { git = "https://github.com/jimmy-claw/lez-framework.git", rev = "080a0a5bd62a94ff20a82a953b93806b066afaca" }
-nssa_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.2.0-rc3", features = ["host"] }
+spel-framework = { path = "vendor/spel-framework/spel-framework" }
+spel-framework-core = { path = "vendor/spel-framework/spel-framework-core" }
+spel-client-gen = { path = "vendor/spel-framework/spel-client-gen" }
+lee_core = { path = "/home/timidan/Desktop/persona/dist-x/.scaffold/cache/repos/lez/rc5/lee/state_machine/core" }
+lee = { path = "/home/timidan/Desktop/persona/dist-x/.scaffold/cache/repos/lez/rc5/lee/state_machine" }
 
 hex = "0.4.3"
 bytemuck = "1.24.0"
@@ -57,6 +58,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-
-[patch."https://github.com/logos-blockchain/logos-execution-zone.git"]
-nssa_core = { path = "vendor/nssa_core" }

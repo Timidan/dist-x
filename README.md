@@ -1,6 +1,6 @@
 # DistributionX
 
-DistributionX is a private allowlist airdrop for the Logos Execution Zone (LEZ). A distributor publishes only a Merkle root on-chain. A claimant proves membership with a real Risc0 receipt and claims to a shielded destination commitment through the `claim` instruction. The witness fields (eligible address, salt, signature, Merkle path) are private inputs to the Risc0 zkVM and do not appear in the public transaction transcript.
+DistributionX is a private allowlist airdrop for the Logos Execution Zone (LEZ). A distributor publishes only a Merkle root on-chain. A claimant proves membership and claims to a private destination through the `claim_ppe` instruction, submitted via LEZ privacy-preserving execution (PPE). The witness fields (eligible address, salt, signature, Merkle path) are local inputs to the PPE proof and do not appear in the on-chain transaction. This is live on the LEZ testnet (LEZ v0.2.0-rc5): 2 distributions and 20 witness-private claims — see [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md).
 
 Architecture diagram: [DistributionX.system-architecture.excalidraw](DistributionX.system-architecture.excalidraw).
 
@@ -12,7 +12,8 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | SPEL IDL | `idl/distributionx.idl.json`, `crates/distributionx-program/idl/distributionx.json` |
 | Risc0 proof stack | `methods/`, `crates/distributionx-circuit/`, `distributionx-cli prove` |
 | Eligibility committed without public addresses | `init_airdrop` stores `merkle_root` and `bucket_table_hash`; encrypted rows stay in `bundle.json` |
-| Recipient claims without revealing eligible address | Risc0 public journal contains `airdrop_id`, `merkle_root`, `bucket_id`, `nullifier`, `claim_destination_commitment` |
+| Recipient claims without revealing eligible address | `claim_ppe` via PPE (`send_privacy_preserving_tx`); the PPE message carries no instruction data/witness. 20 on-chain claims in [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md) |
+| LEZ testnet deployment (>=2 distributions, >=20 claims) | Program `218a07eb...` on `testnet.lez.logos.co`; [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md) |
 | One claim per recipient | Nullifier PDA and `E_ALREADY_CLAIMED`; tests in `crates/distributionx-program/tests/` |
 | Threat model and privacy model | [docs/WRITEUP.md](docs/WRITEUP.md) |
 | Client SDK / CLI | `crates/distributionx-client/`, `crates/distributionx-cli/` |
@@ -26,24 +27,24 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | License | `LICENSE-MIT`, `LICENSE-APACHE` |
 | FURPS self-assessment and upstream issues | [solutions/DistributionX.md](solutions/DistributionX.md) |
 
-The previous adoption target for three outside-team distributions is out of scope for this submission. The remaining non-repo artifacts are the narrated demo video URL and the GitHub default-branch CI URL after pushing.
+The previous adoption target for three outside-team distributions was dropped by the L-Prize team.
 
 ## Recorded Evidence
 
-Standalone LEZ shielded real-proof run:
+Live LEZ testnet run (rc5 PPE) — primary evidence:
 
 | Field | Value |
 |---|---|
-| Evidence file | `docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json` |
-| RPC | `http://127.0.0.1:3040` |
-| Program id | `e8c822f38f5c7eee2e9dd826b414febe6a78ccb98cbfe9a708fd800b23f59d01` |
-| Method image id | `ceb38078c8af34dcfd31b3cb81f9d653a761c49d50f15b83febd0e136926baa6` |
-| Deploy tx | `666a39c783a5a96e613e956f5ec1e9211aae5d846616313d642c86bf4a726f48` |
-| E2E result | `DISTRIBUTIONX_E2E_PASS` |
-| Proof mode | `risc0-zkvm-receipt`, `RISC0_DEV_MODE=0` |
-| Flow | deploy, init, fund, prove, verify, `claim` (Risc0 receipt; credit lands on nullifier PDA), duplicate rejection, close |
+| Evidence file | [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md) |
+| RPC | `https://testnet.lez.logos.co` (LEZ v0.2.0-rc5) |
+| Program id | `218a07eb268df922ded961fefd7d035752b44d05f4bb5172305fb0bc54506989` |
+| Deploy tx | `b4e31be3c5f9e784295869904e217b52da6bfbe81f2146dd756f9827263537bc` |
+| Distributions / claims | 2 distributions, 20 witness-private `claim_ppe` claims, 20 settlements |
+| Proof mode | PPE (`send_privacy_preserving_tx`), `RISC0_DEV_MODE=0` |
+| Verification | every tx confirmed via `getTransaction` |
+| Per-claim CU | 504401 (public execution; under the 32M cap) |
 
-CU values are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md).
+CU values are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md). Earlier standalone-sequencer runs are preserved under `docs/run-logs/deployment/` as historical context.
 
 ## Reviewer Entry Points
 

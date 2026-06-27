@@ -157,6 +157,16 @@ pub enum Command {
         #[arg(long = "destination-packet", value_name = "PATH")]
         destination_packet: String,
     },
+    #[command(about = "Generate a LEZ private destination packet")]
+    CreateDestination {
+        #[arg(
+            long,
+            default_value = "target/distributionx-testnet",
+            value_name = "DIR",
+            help = "Directory for shielded destination files"
+        )]
+        out_dir: String,
+    },
     #[command(about = "Inspect eligibility CSV totals and privacy buckets")]
     InspectCsv {
         #[arg(long, value_name = "PATH", help = "Eligibility CSV path")]

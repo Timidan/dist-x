@@ -18,6 +18,9 @@ char* distributionx_claim(const char* args_json);
 /* claim_private instruction */
 char* distributionx_claim_private(const char* args_json);
 
+/* claim_ppe instruction */
+char* distributionx_claim_ppe(const char* args_json);
+
 /* close instruction */
 char* distributionx_close(const char* args_json);
 

@@ -15,8 +15,8 @@ if [[ -r "${ENV_FILE}" ]]; then
   set +a
 fi
 
-LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/35d8df0d031315219f94d1546ceb862b0e5b208f}"
-WALLET_BIN="${LEZ_REPO}/target/release/wallet"
+LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/rc5}"
+WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
 RPC_URL="${LEZ_RPC_URL:-http://127.0.0.1:3040}"
 
 if [[ ! -x "${WALLET_BIN}" ]]; then
@@ -35,12 +35,12 @@ default_wallet_home() {
   if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
     printf '%s\n' "${ROOT}/.scaffold/wallet"
   else
-    printf '%s\n' "${HOME}/.nssa/wallet"
+    printf '%s\n' "${HOME}/.lee/wallet"
   fi
 }
 
-export NSSA_WALLET_HOME_DIR="${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}"
-mkdir -p "${NSSA_WALLET_HOME_DIR}"
+export LEE_WALLET_HOME_DIR="${LEE_WALLET_HOME_DIR:-${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}}"
+mkdir -p "${LEE_WALLET_HOME_DIR}"
 
 pin_sequencer() {
   if ! "${WALLET_BIN}" config set sequencer_addr "${RPC_URL}" >&2; then
@@ -52,7 +52,7 @@ pin_sequencer() {
 deployer_key_present() {
   local id_full="${1:-}"
   [[ -z "${id_full}" ]] && return 1
-  [[ -f "${NSSA_WALLET_HOME_DIR}/storage.json" ]] || return 1
+  [[ -f "${LEE_WALLET_HOME_DIR}/storage.json" ]] || return 1
   "${WALLET_BIN}" account ls 2>/dev/null | grep -qF -- "${id_full}"
 }
 
@@ -62,13 +62,18 @@ account_balance() {
     | grep -oE '"balance":[0-9]+' | head -n1 | grep -oE '[0-9]+' || echo "0"
 }
 
+wallet_public_accounts() {
+  "${WALLET_BIN}" account ls 2>/dev/null \
+    | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^Public\//) print $i }'
+}
+
 if [[ -n "${LEZ_DEPLOYER_WALLET:-}" ]]; then
   if deployer_key_present "${LEZ_DEPLOYER_WALLET}"; then
     if is_localnet; then
       balance="$(account_balance "${LEZ_DEPLOYER_WALLET}")"
       min_bal="${DISTRIBUTIONX_BOOTSTRAP_MIN_BALANCE:-1}"
       if (( balance >= min_bal )); then
-        echo "LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} (key present in ${NSSA_WALLET_HOME_DIR}, balance=${balance})" >&2
+        echo "LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} (key present in ${LEE_WALLET_HOME_DIR}, balance=${balance})" >&2
         pin_sequencer
         echo "${LEZ_DEPLOYER_WALLET}"
         exit 0
@@ -76,20 +81,20 @@ if [[ -n "${LEZ_DEPLOYER_WALLET:-}" ]]; then
       echo "warning: LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} has balance=${balance}, below the ${min_bal} threshold; looking for another funded localnet account" >&2
       unset LEZ_DEPLOYER_WALLET
     else
-      echo "LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} (already set, key present in ${NSSA_WALLET_HOME_DIR})" >&2
+      echo "LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} (already set, key present in ${LEE_WALLET_HOME_DIR})" >&2
       pin_sequencer
       echo "${LEZ_DEPLOYER_WALLET}"
       exit 0
     fi
   else
-    echo "warning: LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} has no signing key under ${NSSA_WALLET_HOME_DIR}; bootstrapping a fresh account" >&2
+    echo "warning: LEZ_DEPLOYER_WALLET=${LEZ_DEPLOYER_WALLET} has no signing key under ${LEE_WALLET_HOME_DIR}; bootstrapping a fresh account" >&2
     unset LEZ_DEPLOYER_WALLET
   fi
 fi
 
 # Localnet: prefer the highest-balance preconfigured pre-funded public.
 # Avoids the "fresh account, zero balance" failure mode on a stale sequencer.
-if is_localnet && [[ -f "${NSSA_WALLET_HOME_DIR}/storage.json" ]]; then
+if is_localnet && [[ -f "${LEE_WALLET_HOME_DIR}/storage.json" ]]; then
   best_acct=""
   best_balance=0
   while read -r acct; do
@@ -99,7 +104,7 @@ if is_localnet && [[ -f "${NSSA_WALLET_HOME_DIR}/storage.json" ]]; then
       best_balance="${balance}"
       best_acct="${acct}"
     fi
-  done < <("${WALLET_BIN}" account ls 2>/dev/null | awk '/^Preconfigured Public\// { print $2 }')
+  done < <(wallet_public_accounts)
 
   min_bal="${DISTRIBUTIONX_BOOTSTRAP_MIN_BALANCE:-1}"
   if [[ -n "${best_acct}" && "${best_balance}" -ge "${min_bal}" ]]; then
@@ -113,7 +118,7 @@ if is_localnet && [[ -f "${NSSA_WALLET_HOME_DIR}/storage.json" ]]; then
     echo "  the standalone sequencer's preconfigured accounts may be exhausted from prior runs." >&2
     echo "  to reset balances, restart clean: 'bash scripts/standalone-sequencer.sh restart --clean'" >&2
   else
-    echo "warning: no preconfigured public account found in wallet storage" >&2
+    echo "warning: no public account found in wallet storage" >&2
   fi
   # In evidence mode, fail fast rather than wasting an external distributor's
   # time on a run that will silently break at fund/claim.
@@ -148,12 +153,10 @@ if ! is_localnet; then
   echo "claiming testnet faucet funds for ${new_account_id}" >&2
   "${WALLET_BIN}" pinata claim --to "${new_account_id}" >&2
 else
-  # Localnet has no faucet — top up from a preconfigured pre-funded public.
-  funder="$("${WALLET_BIN}" account ls 2>/dev/null \
-    | awk '/^Preconfigured Public\// { print $2; exit }' \
-    | head -n1 || true)"
+  # Localnet has no faucet — top up from a wallet-owned funded public account.
+  funder="$(wallet_public_accounts | head -n1 || true)"
   if [[ -z "${funder}" ]]; then
-    echo "warning: localnet (${RPC_URL}) has no preconfigured public account in this wallet; ${new_account_id} is unfunded — fund it manually before submitting transactions" >&2
+    echo "warning: localnet (${RPC_URL}) has no public account in this wallet; ${new_account_id} is unfunded — fund it manually before submitting transactions" >&2
   else
     echo "auto-funding ${new_account_id} with ${LOCALNET_FUND_AMOUNT} units from ${funder}" >&2
     if ! "${WALLET_BIN}" auth-transfer send --from "${funder}" --to "${new_account_id}" --amount "${LOCALNET_FUND_AMOUNT}" >&2; then

@@ -1,5 +1,7 @@
 # DistributionX Write-Up
 
+> **rc5 / PPE update.** The active claim path is now `claim_ppe`, submitted through LEZ privacy-preserving execution (PPE) on LEZ v0.2.0-rc5, and is deployed + demonstrated on the live testnet (2 distributions, 20 witness-private claims — see [TESTNET_EVIDENCE.md](TESTNET_EVIDENCE.md)). Witness privacy now comes from the PPE transaction format (no instruction data / witness on-chain) rather than from a receipt-based `claim`; the receipt `claim` (~218M cycles) cannot land within the 32M public-execution cap, and `claim_private` (witness in instruction data) is an opt-in, witness-leaking fallback. The commitment, nullifier, and uniqueness mechanics below are unchanged; where older sections describe the receipt-based `claim` as the primary path, read `claim_ppe` as the shipping path.
+
 ## Commitment Scheme
 
 DistributionX parses an eligibility CSV into amount buckets and computes `leaf = H_LEAF(address, bucket_id, salt)` for each row. The on-chain commitment is the fixed-depth Merkle root. The bucket table is hashed separately and bound into the airdrop id and encrypted bundle associated data.

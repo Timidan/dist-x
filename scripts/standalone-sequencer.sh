@@ -14,16 +14,33 @@ if [[ -r "${ENV_FILE}" ]]; then
   set +a
 fi
 
-LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/35d8df0d031315219f94d1546ceb862b0e5b208f}"
-BASE_CONFIG="${LEZ_REPO}/sequencer/service/configs/debug/sequencer_config.json"
-TARGET_DIR="${DISTRIBUTIONX_STANDALONE_TARGET_DIR:-${ROOT}/target/lez-standalone}"
-STATE_DIR="${DISTRIBUTIONX_STANDALONE_STATE_DIR:-${ROOT}/target/lez-standalone-state}"
+LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/rc5}"
+BASE_CONFIG="${LEZ_REPO}/lez/sequencer/service/configs/debug/sequencer_config.json"
+TARGET_DIR="${DISTRIBUTIONX_STANDALONE_TARGET_DIR:-${ROOT}/target/lez-rc5-build}"
+STATE_DIR="${DISTRIBUTIONX_STANDALONE_STATE_DIR:-${ROOT}/target/lez-rc5-standalone-state}"
+CARGO_HOME_DIR="${CARGO_HOME:-${ROOT}/target/cargo-home}"
 RUNTIME_CONFIG="/tmp/distributionx-standalone-sequencer-${UID_VAL}.json"
 PID_FILE="/tmp/distributionx-standalone-sequencer-${UID_VAL}.pid"
 LOG_FILE="/tmp/distributionx-standalone-sequencer-${UID_VAL}.log"
 PORT="${SEQUENCER_RPC_PORT:-3040}"
 MAX_BLOCK_SIZE="${DISTRIBUTIONX_SEQUENCER_MAX_BLOCK_SIZE:-4 MiB}"
-PUBLIC_EXECUTION_CYCLE_LIMIT="${DISTRIBUTIONX_PUBLIC_EXECUTION_CYCLE_LIMIT:-268435456}"
+PUBLIC_EXECUTION_CYCLE_LIMIT="${DISTRIBUTIONX_PUBLIC_EXECUTION_CYCLE_LIMIT:-33554432}"
+RECURSION_SRC_PATH="${RECURSION_SRC_PATH:-${ROOT}/target/debug/build/risc0-circuit-recursion-a1c9201d1968cbdd/out/recursion_zkr.zip}"
+RAPIDSNARK_LIB_DIR="${RAPIDSNARK_LIB_DIR:-${ROOT}/target/lez-rc5-build/release/build/rust-rapidsnark-4e8ffacb0415e9be/out/rapidsnark/x86_64}"
+LOGOS_BLOCKCHAIN_CIRCUITS="${LOGOS_BLOCKCHAIN_CIRCUITS:-${ROOT}/vendor/logos-blockchain-circuits}"
+
+default_lbc_root_dir() {
+  local cached="${HOME}/.cache/logos/blockchain/logos-blockchain-circuits-v0.5.3-linux-x86_64"
+  if [[ -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/signature" && -d "${LOGOS_BLOCKCHAIN_CIRCUITS}/lib" ]]; then
+    printf '%s\n' "${LOGOS_BLOCKCHAIN_CIRCUITS}"
+  elif [[ -d "${cached}/signature" && -d "${cached}/lib" ]]; then
+    printf '%s\n' "${cached}"
+  else
+    printf '%s\n' "${LOGOS_BLOCKCHAIN_CIRCUITS}"
+  fi
+}
+
+LBC_ROOT_DIR="${LBC_ROOT_DIR:-$(default_lbc_root_dir)}"
 
 log() { printf '[standalone-sequencer] %s\n' "$*"; }
 die() { printf '[standalone-sequencer] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -65,27 +82,31 @@ PY
 
 build_binary() {
   [[ -d "${LEZ_REPO}" ]] || die "LEZ repo not found: ${LEZ_REPO}. Run lgs setup first."
+  [[ -f "${BASE_CONFIG}" ]] || die "sequencer config not found: ${BASE_CONFIG}"
+  [[ -f "${RECURSION_SRC_PATH}" ]] || die "cached RISC0 recursion_zkr.zip not found: ${RECURSION_SRC_PATH}"
+  [[ -d "${RAPIDSNARK_LIB_DIR}" ]] || die "RAPIDSNARK_LIB_DIR not found: ${RAPIDSNARK_LIB_DIR}"
+  [[ -d "${LBC_ROOT_DIR}" ]] || die "LBC_ROOT_DIR not found: ${LBC_ROOT_DIR}"
   patch_public_execution_cycle_limit
   patch_cycle_logging
   patch_stable_duration_constructors
-  CARGO_TARGET_DIR="${TARGET_DIR}" \
-    cargo build --release -p sequencer_service --features standalone \
+  CARGO_HOME="${CARGO_HOME_DIR}" CARGO_TARGET_DIR="${TARGET_DIR}" RECURSION_SRC_PATH="${RECURSION_SRC_PATH}" RAPIDSNARK_LIB_DIR="${RAPIDSNARK_LIB_DIR}" LBC_ROOT_DIR="${LBC_ROOT_DIR}" \
+    cargo build --release -p sequencer_service --features standalone,lee/prove \
     --manifest-path "${LEZ_REPO}/Cargo.toml"
 }
 
 patch_public_execution_cycle_limit() {
   [[ "${PUBLIC_EXECUTION_CYCLE_LIMIT}" =~ ^[0-9]+$ ]] \
     || die "DISTRIBUTIONX_PUBLIC_EXECUTION_CYCLE_LIMIT must be an integer"
-  local file="${LEZ_REPO}/nssa/src/program.rs"
-  [[ -f "${file}" ]] || die "nssa program source not found: ${file}"
+  local file="${LEZ_REPO}/lee/state_machine/src/program.rs"
+  [[ -f "${file}" ]] || die "LEE program source not found: ${file}"
   perl -0pi \
     -e "s#const MAX_NUM_CYCLES_PUBLIC_EXECUTION: u64 = [^;]+;[^\\n]*#const MAX_NUM_CYCLES_PUBLIC_EXECUTION: u64 = ${PUBLIC_EXECUTION_CYCLE_LIMIT}; // patched by DistributionX standalone helper#g" \
     "${file}"
 }
 
 patch_cycle_logging() {
-  local public_file="${LEZ_REPO}/nssa/src/program.rs"
-  [[ -f "${public_file}" ]] || die "nssa program source not found: ${public_file}"
+  local public_file="${LEZ_REPO}/lee/state_machine/src/program.rs"
+  [[ -f "${public_file}" ]] || die "LEE program source not found: ${public_file}"
 
   python3 - "${public_file}" <<'PY'
 from pathlib import Path
@@ -97,13 +118,13 @@ public_text = public_file.read_text()
 if "DISTRIBUTIONX_LEZ_CU kind=public" not in public_text:
     needle = """        let session_info = executor
             .execute(env, self.elf())
-            .map_err(|e| NssaError::ProgramExecutionFailed(e.to_string()))?;
+            .map_err(|e| LeeError::ProgramExecutionFailed(e.to_string()))?;
 
         // Get outputs
 """
     replacement = """        let session_info = executor
             .execute(env, self.elf())
-            .map_err(|e| NssaError::ProgramExecutionFailed(e.to_string()))?;
+            .map_err(|e| LeeError::ProgramExecutionFailed(e.to_string()))?;
         let program_id_hex: String = self
             .id
             .iter()
@@ -161,7 +182,7 @@ cmd_start() {
   write_runtime_config
 
   rm -f "${LOG_FILE}"
-  nohup setsid env RUST_LOG="${RUST_LOG:-info}" \
+  nohup setsid env RUST_LOG="${RUST_LOG:-info}" RISC0_EXECUTOR="${RISC0_EXECUTOR:-local}" \
     "${TARGET_DIR}/release/sequencer_service" "${RUNTIME_CONFIG}" --port "${PORT}" \
     > "${LOG_FILE}" 2>&1 < /dev/null &
   local pid=$!
