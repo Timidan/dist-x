@@ -17,13 +17,16 @@ All setup txs and all 40 claim/token txs below were checked with `getTransaction
 
 ## Evidence files
 
-- First distribution state: `target/distributionx-testnet-rc5-evidence`
-- Second distribution state: `target/distributionx-testnet-rc5-evidence-c1`
-- First distribution tx verification: `target/distributionx-testnet-rc5-evidence/evidence/gettransaction-b1.jsonl`
-- Second distribution tx verification: `target/distributionx-testnet-rc5-evidence-c1/evidence/gettransaction-c1.jsonl`
-- Setup tx verification: `target/distributionx-testnet-rc5-evidence/evidence/gettransaction-setup.jsonl`
-- Per-claim receipts: `target/distributionx-testnet-rc5-evidence*/evidence/receipts/*.json`
-- Raw claim logs: `target/distributionx-testnet-rc5-evidence*/evidence/logs/*.claim.log`
+The witness-free verification artifacts are committed under [`docs/testnet-evidence/`](./testnet-evidence) (`b1/` = `lp0003-rc5-b1`, `c1/` = `lp0003-rc5-c1`):
+
+- `getTransaction` verification (every setup + claim/token tx, each `found: true`): [`b1/gettransaction-*.jsonl`](./testnet-evidence/b1), [`c1/gettransaction-*.jsonl`](./testnet-evidence/c1)
+- Per-claim receipts (public-execution CU = 504401, with claim + token tx ids): `docs/testnet-evidence/{b1,c1}/receipts/*.json`
+- Per-claim summaries: `docs/testnet-evidence/{b1,c1}/claims.jsonl`
+- Raw claim / prepare / destination logs: `docs/testnet-evidence/{b1,c1}/logs/*.log`
+
+These artifacts carry no witness data — the eligible address, row salt, claim signature, and Merkle path never appear in them (that is the point of the `claim_ppe` PPE path). Every transaction is also independently verifiable on-chain by running `getTransaction` against `https://testnet.lez.logos.co` with the tx ids in the tables below.
+
+The per-distribution working state (`target/distributionx-testnet-rc5-evidence{,-c1}/`) — wallet seeds, claimant keystores, and encrypted bundles — is intentionally **not** committed because it holds private keys. It is regenerated locally by the evidence run and is not needed to verify the on-chain result.
 
 ## Privacy path
 

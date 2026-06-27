@@ -72,6 +72,9 @@ run_tracked_check() {
     "README.md"
     "DistributionX.system-architecture.excalidraw"
     "docs/TESTNET_EVIDENCE.md"
+    # Sentinel for the committed testnet verification artifacts: if docs/testnet-evidence/
+    # gets re-gitignored, the submission's evidence links break — fail loudly here.
+    "docs/testnet-evidence/b1/gettransaction-b1.jsonl"
     "scripts/ci-local.sh"
     "scripts/risc0-setup.sh"
     # Sentinels for the vendored spel-framework fork: if the whole tree is ever

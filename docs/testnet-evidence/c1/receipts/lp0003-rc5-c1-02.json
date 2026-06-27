@@ -1,0 +1,9 @@
+{
+  "captured_from": "scripts/local-submit.sh",
+  "cu": 504401,
+  "note": null,
+  "status": "OK",
+  "token_tx_id": "08d614e8242b5ea11c95d3b3a2ce4fb23cb3a20f222bdfa5e9a7975a18638727",
+  "tx_id": "7aee1ebf8a187179cbaa1dc247ed12ab101dc5abf61e0a5e48fc5e5522c08ea3",
+  "cu_source": "standalone-sequencer:public"
+}

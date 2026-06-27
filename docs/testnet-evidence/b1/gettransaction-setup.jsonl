@@ -1,0 +1,6 @@
+{"kind":"deploy","label":"fixed-program","tx":"b4e31be3c5f9e784295869904e217b52da6bfbe81f2146dd756f9827263537bc","found":true,"error":null,"result_type":"string"}
+{"kind":"mint","label":"test-token","tx":"09844aa49ea37e7bd55e39803979c1dddce79216c6083dac5a4ec8dac9220a00","found":true,"error":null,"result_type":"string"}
+{"kind":"init","label":"lp0003-rc5-b1","tx":"f27918090fd3c6652b3d877eca004048718c4b95502b6c8f73edc6f2f3c833de","found":true,"error":null,"result_type":"string"}
+{"kind":"fund","label":"lp0003-rc5-b1","tx":"46783c7b914cf3d4428c1958864acee70cc440925b91e0aa418b0e4d7dc48814","found":true,"error":null,"result_type":"string"}
+{"kind":"init","label":"lp0003-rc5-c1","tx":"10798686d95f83ed599f7168a4fb470338dd10c68eccaf60c7b6d1f43c434ad9","found":true,"error":null,"result_type":"string"}
+{"kind":"fund","label":"lp0003-rc5-c1","tx":"9d73cec1da90eb79208be77e2eb132490301aa750e02bde41f9c130baed37392","found":true,"error":null,"result_type":"string"}

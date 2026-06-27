@@ -48,6 +48,10 @@ docs/*
 !docs/TESTNET_EVIDENCE.md
 !docs/bench/
 docs/bench/*
+# Witness-free testnet verification artifacts (getTransaction jsonl, receipts,
+# claim summaries). The seed-bearing state dirs under target/ stay ignored.
+!docs/testnet-evidence/
+!docs/testnet-evidence/**
 !docs/run-logs/
 docs/run-logs/*
 !docs/run-logs/deployment/

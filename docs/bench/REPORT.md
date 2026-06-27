@@ -21,7 +21,7 @@ The LP-0003 evidence run is recorded on the **live LEZ testnet** (`https://testn
 |---|---:|---|
 | `init_airdrop` | 442721 | standalone reproduction (cycle count is deterministic per program) |
 | `fund` | 447195 | standalone reproduction |
-| `claim_ppe` (each of 20 claims) | 504401 | live testnet evidence receipts (`target/distributionx-testnet-rc5-evidence*/evidence/receipts/*.json`) |
+| `claim_ppe` (each of 20 claims) | 504401 | live testnet evidence receipts (`docs/testnet-evidence/{b1,c1}/receipts/*.json`) |
 
 The testnet RPC `getTransaction` response does not expose a CU field; the per-claim CU above is the local LEZ public-execution cycle counter written into the receipt JSON alongside each claim. Cycle counts are deterministic for a given program image, so the standalone `init`/`fund` counts equal the testnet ones. The `close` instruction is not part of the 20-claim evidence batch (distributions are left open during the run); its standalone CU is in the historical table below.
 
