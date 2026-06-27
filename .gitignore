@@ -14,6 +14,11 @@ Cargo.lock.bak
 vendor/*
 !vendor/nssa_core/
 !vendor/nssa_core/**
+# Vendored SPEL framework fork (ported to LEZ rc5 lee/lez). Source only; target/ stays ignored via **/target/ above.
+!vendor/spel-framework/
+!vendor/spel-framework/**
+vendor/spel-framework/target/
+vendor/spel-framework/**/target/
 .superpowers/
 .vscode/
 .codex
@@ -40,6 +45,7 @@ docs/
 !docs/
 docs/*
 !docs/WRITEUP.md
+!docs/TESTNET_EVIDENCE.md
 !docs/bench/
 docs/bench/*
 !docs/run-logs/

@@ -28,8 +28,8 @@ risc0-build = "3.0.5"
 spel-framework = { path = "vendor/spel-framework/spel-framework" }
 spel-framework-core = { path = "vendor/spel-framework/spel-framework-core" }
 spel-client-gen = { path = "vendor/spel-framework/spel-client-gen" }
-lee_core = { path = "/home/timidan/Desktop/persona/dist-x/.scaffold/cache/repos/lez/rc5/lee/state_machine/core" }
-lee = { path = "/home/timidan/Desktop/persona/dist-x/.scaffold/cache/repos/lez/rc5/lee/state_machine" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
 
 hex = "0.4.3"
 bytemuck = "1.24.0"
