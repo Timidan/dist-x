@@ -84,7 +84,6 @@ url = "2.5.8"
 wallet = { path = "${LEZ_REPO}/lez/wallet" }
 EOF
 cp "${ROOT}/scripts/adapter-lock/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
-cargo +1.94.0 fetch -q --locked --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 
 cat > "${ADAPTER_DIR}/src/main.rs" <<'EOF'
 use common::HashType;
@@ -408,6 +407,8 @@ fn parse_account_id(value: &str) -> Result<AccountId, String> {
         .map_err(|e| format!("account id {value}: {e}"))
 }
 EOF
+
+cargo +1.94.0 fetch -q --locked --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 
 ADAPTER_STDOUT="${ADAPTER_DIR}/stdout.log"
 if [[ "${DISTRIBUTIONX_LOCAL_TOKEN_COMPILE_ONLY:-0}" == "1" ]]; then

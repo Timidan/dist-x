@@ -28,6 +28,10 @@ for adapter in local-submit.sh local-token-mint.sh; do
     || fail "${adapter} does not start from the reviewed adapter lock"
   grep -Eq 'cargo \+1\.94\.0 fetch .*--locked.*--manifest-path' "${path}" \
     || fail "${adapter} does not fetch from the reviewed lock"
+  main_line="$(grep -nF 'cat > "${ADAPTER_DIR}/src/main.rs"' "${path}" | head -n 1 | cut -d: -f1)"
+  fetch_line="$(grep -nE 'cargo \+1\.94\.0 fetch .*--locked.*--manifest-path' "${path}" | head -n 1 | cut -d: -f1)"
+  [[ -n "${main_line}" && -n "${fetch_line}" && "${main_line}" -lt "${fetch_line}" ]] \
+    || fail "${adapter} fetches before generating its Cargo target"
   grep -Eq 'cargo \+1\.94\.0 (check|run).*--locked.*--release' "${path}" \
     || fail "${adapter} does not use pinned, locked release Cargo"
   if grep -Eq '^[[:space:]]*cargo (check|run)' "${path}"; then

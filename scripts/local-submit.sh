@@ -115,7 +115,6 @@ token_core = { path = "${LEZ_REPO}/lez/programs/token/core" }
 wallet = { path = "${LEZ_REPO}/lez/wallet" }
 EOF
 cp "${ROOT}/scripts/adapter-lock/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
-cargo +1.94.0 fetch -q --locked --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 perl -0pe '
   s#^//!#//#mg;
   s#let airdrop_id = serde_json::from_value#let airdrop_id: [u8; 32] = serde_json::from_value#g;
@@ -1193,6 +1192,8 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 EOF
+
+cargo +1.94.0 fetch -q --locked --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 
 update_receipt_cu() {
   local response="$1"
