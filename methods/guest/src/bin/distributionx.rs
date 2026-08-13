@@ -30,7 +30,7 @@ const E_EXPIRY_INVALID: u32 = 16;
 const E_NULLIFIER_MISMATCH: u32 = 17;
 
 const EXPECTED_IMAGE_ID_WORDS: [u32; 8] = [
-    3141513113, 513411627, 2775329122, 1951671961, 2379804717, 2477509641, 2123351257, 474150452,
+    159149462, 3303751158, 728986932, 2569095220, 1608368639, 2164746031, 2584417643, 1167772229,
 ];
 const EXPECTED_IMAGE_ID: [u8; 32] = image_id_words_to_bytes(EXPECTED_IMAGE_ID_WORDS);
 
@@ -165,6 +165,14 @@ fn ensure_active(state: &AirdropState, now_unix: i64) -> Result<(), SpelError> {
         ));
     }
     Ok(())
+}
+
+fn with_claim_expiry(output: SpelOutput, expiry_unix: i64) -> SpelResult {
+    let expiry_millis = u64::try_from(expiry_unix)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1_000))
+        .ok_or_else(|| program_error(E_OVERFLOW, "airdrop expiry milliseconds overflow"))?;
+    Ok(output.with_timestamp_validity_window(..expiry_millis))
 }
 
 fn verify_claim_witness(
@@ -445,14 +453,17 @@ mod distributionx {
         let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
         nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]
@@ -532,14 +543,17 @@ mod distributionx {
         let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
         nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]
@@ -624,15 +638,18 @@ mod distributionx {
         let mut recipient_post = recipient.account;
         recipient_post.balance = checked_add_u128(recipient_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-                recipient_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                    recipient_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]

@@ -1686,6 +1686,9 @@ fn default_wallet_path() -> String {
 }
 
 fn method_id() -> CliResult<()> {
+    if DISTRIBUTIONX_METHODS_GUEST_ID != distributionx_program::processor::EXPECTED_IMAGE_ID_WORDS {
+        return Err(boxed_err("E_DISTRIBUTIONX_METHOD_IMAGE_ID_MISMATCH"));
+    }
     println!(
         "{}",
         serde_json::json!({
