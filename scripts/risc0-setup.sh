@@ -73,6 +73,7 @@ install_component rust "${RISC0_RUST_VERSION}"
 install_component cpp "${RISC0_CPP_VERSION}"
 install_component cargo-risczero "${RISC0_CARGO_RISCZERO_VERSION}"
 install_component r0vm "${RISC0_R0VM_VERSION}"
+"${RZUP_BIN}" default r0vm "${RISC0_R0VM_VERSION}"
 printf '%s\n' "${RZUP_SHOW}"
 
 if ! command -v r0vm >/dev/null 2>&1; then

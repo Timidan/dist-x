@@ -66,6 +66,9 @@ grep -Fq 'printf '\''%s\n'\'' "${RISC0_CARGO_BIN_DIR}" >> "${GITHUB_PATH}"' \
   || fail "Risc0 setup does not persist CARGO_HOME/bin for later Actions steps"
 grep -Fq 'r0vm --version' "${ROOT}/scripts/risc0-setup.sh" \
   || fail "Risc0 setup does not verify that r0vm is callable before returning"
+grep -Fq '"${RZUP_BIN}" default r0vm "${RISC0_R0VM_VERSION}"' \
+  "${ROOT}/scripts/risc0-setup.sh" \
+  || fail "Risc0 setup does not reactivate an already-installed r0vm"
 grep -Fq 'test "${GITHUB_REF_NAME}" = "v${core_version}"' "${workflow}" \
   || fail "release tag is not required to match the package versions"
 grep -Fq 'id: lifecycle-log-scan' "${workflow}" \
