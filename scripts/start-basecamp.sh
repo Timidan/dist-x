@@ -114,9 +114,13 @@ bootstrap_local_signer() {
   if ! is_local_rpc; then
     return
   fi
+  local bootstrap_args=()
+  if [[ "${RESET_LOCALNET}" == "1" || "${DISTRIBUTIONX_BASECAMP_RESET_LOCALNET:-0}" == "1" ]]; then
+    bootstrap_args+=(--clean)
+  fi
   export DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE="${DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE:-1}"
   export DISTRIBUTIONX_BOOTSTRAP_MIN_BALANCE="${DISTRIBUTIONX_BOOTSTRAP_MIN_BALANCE:-3000}"
-  LEZ_DEPLOYER_WALLET="$(bash scripts/wallet-bootstrap.sh)"
+  LEZ_DEPLOYER_WALLET="$(bash scripts/wallet-bootstrap.sh "${bootstrap_args[@]}")"
   export LEZ_DEPLOYER_WALLET
 }
 
@@ -191,6 +195,47 @@ find_basecamp() {
   find "${NIX_STORE_ROOT}" -maxdepth 4 \
     \( -path '*/bin/LogosBasecamp' -o -path '*/bin/.LogosBasecamp' \) \
     2>/dev/null | sort | tail -n 1
+}
+
+restore_installed_ui_manifest() {
+  local installed_dir="${USER_DIR}/plugins/distributionx"
+  local installed_manifest="${installed_dir}/manifest.json"
+  if [[ ! -f "${UI_LGX}" || ! -f "${installed_manifest}" ]]; then
+    return
+  fi
+
+  local installed_view
+  installed_view="$(jq -r '.view // empty' "${installed_manifest}")"
+  if [[ -n "${installed_view}" ]]; then
+    return
+  fi
+
+  local archive_manifest archive_view
+  archive_manifest="$(mktemp "${TMPDIR}/distributionx-ui-manifest.XXXXXX")"
+  if ! tar -xOzf "${UI_LGX}" manifest.json >"${archive_manifest}"; then
+    echo "E_DISTRIBUTIONX_UI_MANIFEST_READ: ${UI_LGX}" >&2
+    return 2
+  fi
+  if ! jq -e '.name == "distributionx" and .type == "ui_qml" and (.view | type == "string" and length > 0)' \
+    "${archive_manifest}" >/dev/null; then
+    echo "E_DISTRIBUTIONX_UI_MANIFEST_INVALID: ${UI_LGX}" >&2
+    return 2
+  fi
+  archive_view="$(jq -r '.view' "${archive_manifest}")"
+  case "${archive_view}" in
+    /*|..|../*|*/..|*/../*)
+      echo "E_DISTRIBUTIONX_UI_VIEW_INVALID: ${archive_view}" >&2
+      return 2
+      ;;
+  esac
+  if [[ ! -f "${installed_dir}/${archive_view}" ]]; then
+    echo "E_DISTRIBUTIONX_UI_VIEW_MISSING: ${installed_dir}/${archive_view}" >&2
+    return 2
+  fi
+
+  install -m 0644 "${archive_manifest}" "${installed_manifest}"
+  rm -f "${archive_manifest}"
+  log "Restored UI manifest fields stripped by the installed lgpm version"
 }
 
 if [[ -r "${ENV_FILE}" ]]; then
@@ -275,6 +320,7 @@ if [[ "${INSTALL}" -eq 1 ]]; then
     --allow-unsigned \
     install --file "${UI_LGX}"
 fi
+restore_installed_ui_manifest
 
 APP_ARGS=()
 if [[ -n "${LEZ_RPC_URL:-}" ]]; then
