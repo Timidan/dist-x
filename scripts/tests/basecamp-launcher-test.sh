@@ -74,18 +74,24 @@ tar -czf "${lgx_dir}/DistributionX-ui.lgx" -C "${package_dir}" manifest.json
 cat >"${TEST_DIR}/lgpm" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+modules_dir=""
 ui_dir=""
 file=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ui-plugins-dir) ui_dir="$2"; shift 2 ;;
-    --modules-dir) shift 2 ;;
+    --modules-dir) modules_dir="$2"; shift 2 ;;
     --allow-unsigned|install) shift ;;
     --file) file="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
-if [[ "${file}" == *DistributionX-ui.lgx ]]; then
+if [[ "${file}" == *distributionx-client.lgx ]]; then
+  mkdir -p "${modules_dir}/distributionx_client"
+  printf '%s\n' '{"name":"distributionx_client","type":"core","main":{"linux-amd64-dev":"distributionx_client_plugin.so"}}' \
+    >"${modules_dir}/distributionx_client/manifest.json"
+  touch "${modules_dir}/distributionx_client/distributionx_client_plugin.so"
+elif [[ "${file}" == *DistributionX-ui.lgx ]]; then
   mkdir -p "${ui_dir}/distributionx/src/qml"
   printf '%s\n' '{"name":"distributionx","type":"ui_qml"}' \
     >"${ui_dir}/distributionx/manifest.json"
@@ -109,6 +115,13 @@ PATH="/usr/bin:/bin" \
 [[ "$(jq -r '.view // empty' "${install_dir}/plugins/distributionx/manifest.json")" == \
   'src/qml/Main.qml' ]] || {
   echo "basecamp-launcher-test: installer-stripped UI view was not restored" >&2
+  exit 1
+}
+
+[[ "$(jq -r '.main["linux-amd64"] // empty' \
+  "${install_dir}/modules/distributionx_client/manifest.json")" == \
+  'distributionx_client_plugin.so' ]] || {
+  echo "basecamp-launcher-test: portable Basecamp core variant was not restored" >&2
   exit 1
 }
 

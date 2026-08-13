@@ -238,6 +238,47 @@ restore_installed_ui_manifest() {
   log "Restored UI manifest fields stripped by the installed lgpm version"
 }
 
+restore_installed_core_manifest() {
+  local installed_dir="${USER_DIR}/modules/distributionx_client"
+  local installed_manifest="${installed_dir}/manifest.json"
+  if [[ ! -f "${installed_manifest}" ]]; then
+    return
+  fi
+
+  local portable_main dev_main
+  portable_main="$(jq -r '.main["linux-amd64"] // empty' "${installed_manifest}")"
+  if [[ -n "${portable_main}" ]]; then
+    return
+  fi
+  dev_main="$(jq -r '
+    if .name == "distributionx_client" and .type == "core" and (.main | type == "object")
+    then .main["linux-amd64-dev"] // empty
+    else empty
+    end
+  ' "${installed_manifest}")"
+  if [[ -z "${dev_main}" ]]; then
+    return
+  fi
+  case "${dev_main}" in
+    /*|..|../*|*/..|*/../*)
+      echo "E_DISTRIBUTIONX_CORE_MAIN_INVALID: ${dev_main}" >&2
+      return 2
+      ;;
+  esac
+  if [[ ! -f "${installed_dir}/${dev_main}" ]]; then
+    echo "E_DISTRIBUTIONX_CORE_MAIN_MISSING: ${installed_dir}/${dev_main}" >&2
+    return 2
+  fi
+
+  local updated_manifest
+  updated_manifest="$(mktemp "${TMPDIR}/distributionx-core-manifest.XXXXXX")"
+  jq --arg main "${dev_main}" '.main["linux-amd64"] = $main' \
+    "${installed_manifest}" >"${updated_manifest}"
+  install -m 0644 "${updated_manifest}" "${installed_manifest}"
+  rm -f "${updated_manifest}"
+  log "Added portable Basecamp compatibility to the installed core manifest"
+}
+
 if [[ -r "${ENV_FILE}" ]]; then
   log "Loading ${ENV_FILE}"
   set -a
@@ -321,6 +362,7 @@ if [[ "${INSTALL}" -eq 1 ]]; then
     install --file "${UI_LGX}"
 fi
 restore_installed_ui_manifest
+restore_installed_core_manifest
 
 APP_ARGS=()
 if [[ -n "${LEZ_RPC_URL:-}" ]]; then
