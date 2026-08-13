@@ -6,7 +6,7 @@ resolver = "3"
 # does not fail on the fork's upstream lints. (rustfmt still descends into path-dep
 # sources, so the fmt step formats an explicit first-party package list instead of
 # `--all`; see .github/workflows/distributionx-ci.yml and scripts/ci-local.sh.)
-exclude = [".scaffold/cache/repos/lez/rc5", "vendor/spel-framework"]
+exclude = [".scaffold/cache/repos/lez/v0.2.4", "vendor/spel-framework"]
 members = [
   "methods",
   "methods/guest",
@@ -34,8 +34,8 @@ risc0-build = "3.0.5"
 spel-framework = { path = "vendor/spel-framework/spel-framework" }
 spel-framework-core = { path = "vendor/spel-framework/spel-framework-core" }
 spel-client-gen = { path = "vendor/spel-framework/spel-client-gen" }
-lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
-lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "27360cb7d6ccb2bfbcca7d171bab8a3938490264" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "47eba256479f6f785acbd138834340703cd03401" }
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", rev = "47eba256479f6f785acbd138834340703cd03401" }
 
 hex = "0.4.3"
 bytemuck = "1.24.0"

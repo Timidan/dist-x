@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${DISTRIBUTIONX_ENV_FILE:-${ROOT}/.env.local}"
 USER_DIR="${DISTRIBUTIONX_BASECAMP_USER_DIR:-${ROOT}/target/basecamp-user}"
+LGX_DIR="${DISTRIBUTIONX_LGX_DIR:-${ROOT}/target/lgx}"
 TMPDIR="${DISTRIBUTIONX_TMPDIR:-${ROOT}/target/tmp}"
+NIX_STORE_ROOT="${DISTRIBUTIONX_NIX_STORE_ROOT:-/nix/store}"
 export TMPDIR
 PACKAGE=1
 INSTALL=1
@@ -154,7 +156,7 @@ find_tool() {
     command -v "${name}"
     return
   fi
-  find /nix/store -maxdepth 4 -path "*/bin/${name}" 2>/dev/null | sort | tail -n 1
+  find "${NIX_STORE_ROOT}" -maxdepth 4 -path "*/bin/${name}" 2>/dev/null | sort | tail -n 1
 }
 
 find_basecamp() {
@@ -177,7 +179,18 @@ find_basecamp() {
     command -v logos-basecamp
     return
   fi
-  find /nix/store -maxdepth 4 \( -path '*/bin/LogosBasecamp' -o -path '*/bin/.LogosBasecamp' \) 2>/dev/null | sort | tail -n 1
+  candidate="$(
+    find "${NIX_STORE_ROOT}" -maxdepth 4 \
+      -path '*-logos-basecamp-bundle-*/bin/LogosBasecamp' \
+      2>/dev/null | sort | tail -n 1
+  )"
+  if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+    printf '%s\n' "${candidate}"
+    return
+  fi
+  find "${NIX_STORE_ROOT}" -maxdepth 4 \
+    \( -path '*/bin/LogosBasecamp' -o -path '*/bin/.LogosBasecamp' \) \
+    2>/dev/null | sort | tail -n 1
 }
 
 if [[ -r "${ENV_FILE}" ]]; then
@@ -236,9 +249,9 @@ reset_localnet_if_requested
 bootstrap_local_signer
 ensure_local_deployment
 
-CORE_LGX="${ROOT}/target/lgx/distributionx-client.lgx"
-UI_LGX="${ROOT}/target/lgx/DistributionX-ui.lgx"
-if [[ ! -f "${CORE_LGX}" || ! -f "${UI_LGX}" ]]; then
+CORE_LGX="${LGX_DIR}/distributionx-client.lgx"
+UI_LGX="${LGX_DIR}/DistributionX-ui.lgx"
+if [[ "${INSTALL}" -eq 1 && ( ! -f "${CORE_LGX}" || ! -f "${UI_LGX}" ) ]]; then
   echo "LGX artifacts missing. Run scripts/package.sh first." >&2
   exit 2
 fi

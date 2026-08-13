@@ -10,11 +10,13 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use serde_json::{Value, json};
 use sha2::{Sha256, Digest};
-use lee::{AccountId, ProgramId, PublicTransaction};
-use lee::public_transaction::{Message, WitnessSet};
+use lee::{program::Program, AccountId, ProgramId};
 use lee_core::program::PdaSeed;
-use sequencer_service_rpc::RpcClient as _;
-use wallet::WalletCore;
+use wallet::{
+    AccountIdentity, WalletCore,
+    config::{SequencerConnectionData, WalletConfigOverrides},
+    helperfunctions::{fetch_config_path, fetch_persistent_storage_path, fetch_statistics_path},
+};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,8 +184,17 @@ fn init_wallet(v: &Value) -> Result<WalletCore, String> {
     let wallet_path = v["wallet_path"].as_str().ok_or("missing required field: wallet_path")?;
     let sequencer_url = v["sequencer_url"].as_str().ok_or("missing required field: sequencer_url")?;
     std::env::set_var("LEE_WALLET_HOME_DIR", wallet_path);
-    std::env::set_var("LEE_SEQUENCER_URL", sequencer_url);
-    WalletCore::from_env().map_err(|e| format!("wallet init: {}", e))
+    let sequencer_addr = sequencer_url.parse().map_err(|e| format!("sequencer URL: {}", e))?;
+    let config_path = fetch_config_path().map_err(|e| format!("wallet config path: {}", e))?;
+    let storage_path = fetch_persistent_storage_path().map_err(|e| format!("wallet storage path: {}", e))?;
+    let statistics_path = fetch_statistics_path().map_err(|e| format!("wallet statistics path: {}", e))?;
+    let overrides = WalletConfigOverrides {
+        sequencers: Some(vec![SequencerConnectionData { sequencer_addr, basic_auth: None }]),
+        ..Default::default()
+    };
+    get_runtime().block_on(WalletCore::new_update_chain(
+        config_path, storage_path, statistics_path, Some(overrides),
+    )).map_err(|e| format!("wallet init: {}", e))
 }
 
 /// FFI: init_airdrop instruction.
@@ -221,14 +232,13 @@ fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
         airdrop_id.as_ref(),
     ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        vault,
-        distributor,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-        distributor,
-    ];
+    if wallet.get_account_public_signing_key(distributor).is_none() {
+        return Err(format!("signing key not found for {}", distributor));
+    }
+    let mut account_identities = Vec::new();
+    account_identities.push(AccountIdentity::PublicNoSign(airdrop));
+    account_identities.push(AccountIdentity::PublicNoSign(vault));
+    account_identities.push(AccountIdentity::Public(distributor));
 
     let instruction = DistributionxInstruction::InitAirdrop {
         airdrop_id,
@@ -245,22 +255,11 @@ fn distributionx_init_airdrop_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
+        let instruction_data = Program::serialize_instruction(instruction)
+            .map_err(|e| format!("instruction: {}", e))?;
+        wallet.send_pub_tx(account_identities, instruction_data, program_id).await
             .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
+            .map(|hash| hash.to_string())
     })?;
 
     Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())
@@ -294,14 +293,13 @@ fn distributionx_fund_impl(args: &str) -> Result<String, String> {
         airdrop_id.as_ref(),
     ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        vault,
-        distributor,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-        distributor,
-    ];
+    if wallet.get_account_public_signing_key(distributor).is_none() {
+        return Err(format!("signing key not found for {}", distributor));
+    }
+    let mut account_identities = Vec::new();
+    account_identities.push(AccountIdentity::PublicNoSign(airdrop));
+    account_identities.push(AccountIdentity::PublicNoSign(vault));
+    account_identities.push(AccountIdentity::Public(distributor));
 
     let instruction = DistributionxInstruction::Fund {
         airdrop_id,
@@ -311,22 +309,11 @@ fn distributionx_fund_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
+        let instruction_data = Program::serialize_instruction(instruction)
+            .map_err(|e| format!("instruction: {}", e))?;
+        wallet.send_pub_tx(account_identities, instruction_data, program_id).await
             .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
+            .map(|hash| hash.to_string())
     })?;
 
     Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())
@@ -365,13 +352,10 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
         airdrop_id.as_ref(),
     ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        nullifier_record,
-        vault,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-    ];
+    let mut account_identities = Vec::new();
+    account_identities.push(AccountIdentity::PublicNoSign(airdrop));
+    account_identities.push(AccountIdentity::PublicNoSign(nullifier_record));
+    account_identities.push(AccountIdentity::PublicNoSign(vault));
 
     let instruction = DistributionxInstruction::Claim {
         airdrop_id,
@@ -382,22 +366,11 @@ fn distributionx_claim_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
+        let instruction_data = Program::serialize_instruction(instruction)
+            .map_err(|e| format!("instruction: {}", e))?;
+        wallet.send_pub_tx(account_identities, instruction_data, program_id).await
             .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
+            .map(|hash| hash.to_string())
     })?;
 
     Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())
@@ -442,13 +415,10 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
         airdrop_id.as_ref(),
     ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        nullifier_record,
-        vault,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-    ];
+    let mut account_identities = Vec::new();
+    account_identities.push(AccountIdentity::PublicNoSign(airdrop));
+    account_identities.push(AccountIdentity::PublicNoSign(nullifier_record));
+    account_identities.push(AccountIdentity::PublicNoSign(vault));
 
     let instruction = DistributionxInstruction::ClaimPrivate {
         airdrop_id,
@@ -465,107 +435,11 @@ fn distributionx_claim_private_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
+        let instruction_data = Program::serialize_instruction(instruction)
+            .map_err(|e| format!("instruction: {}", e))?;
+        wallet.send_pub_tx(account_identities, instruction_data, program_id).await
             .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
-    })?;
-
-    Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())
-}
-
-/// FFI: claim_ppe instruction.
-#[no_mangle]
-pub extern "C" fn distributionx_claim_ppe(args_json: *const c_char) -> *mut c_char {
-    let args = match cstr_to_str(args_json) {
-        Ok(s) => s, Err(e) => return error_json(&e),
-    };
-    ffi_call(move || distributionx_claim_ppe_impl(args))
-}
-
-fn distributionx_claim_ppe_impl(args: &str) -> Result<String, String> {
-    let v: Value = serde_json::from_str(args).map_err(|e| format!("invalid JSON: {}", e))?;
-    let program_id = parse_program_id_hex(v["program_id_hex"].as_str().ok_or("missing program_id_hex")?)?;
-    let wallet = init_wallet(&v)?;
-
-    let airdrop_id = serde_json::from_value(v["airdrop_id"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let bucket_id = v["bucket_id"].as_u64().ok_or("expected number")? as u8;
-    let nullifier = serde_json::from_value(v["nullifier"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let claim_destination_commitment = serde_json::from_value(v["claim_destination_commitment"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let claimant_address = serde_json::from_value(v["claimant_address"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let salt = serde_json::from_value(v["salt"].clone()).map_err(|e| format!("parse error: {}", e))?;
-    let claim_sig = v["claim_sig"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_u64().ok_or("expected number")? as u8)).collect::<Result<Vec<_>, String>>()?;
-    let merkle_siblings = v["merkle_siblings"].as_array().ok_or("expected array")?.iter().map(|item| Ok(serde_json::from_value(item.clone()).map_err(|e| format!("parse error: {}", e))?)).collect::<Result<Vec<_>, String>>()?;
-    let merkle_path_is_right = v["merkle_path_is_right"].as_array().ok_or("expected array")?.iter().map(|item| Ok(item.as_bool().ok_or("expected bool")?)).collect::<Result<Vec<_>, String>>()?;
-    let now_unix = v["now_unix"].as_i64().ok_or("expected number")? as i64;
-
-    let recipient = parse_account_id(v["recipient"].as_str().ok_or("missing recipient")?)?;
-    let airdrop = compute_pda_with_program(&program_id, &[
-        b"airdrop",
-        airdrop_id.as_ref(),
-    ])?;
-    let nullifier_record = compute_pda_with_program(&program_id, &[
-        b"nullifier",
-        airdrop_id.as_ref(),
-        nullifier.as_ref(),
-    ])?;
-    let vault = compute_pda_with_program(&program_id, &[
-        b"vault",
-        airdrop_id.as_ref(),
-    ])?;
-
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        nullifier_record,
-        vault,
-        recipient,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-    ];
-
-    let instruction = DistributionxInstruction::ClaimPpe {
-        airdrop_id,
-        bucket_id,
-        nullifier,
-        claim_destination_commitment,
-        claimant_address,
-        salt,
-        claim_sig,
-        merkle_siblings,
-        merkle_path_is_right,
-        now_unix,
-    };
-
-    let rt = get_runtime();
-    let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
-            .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
+            .map(|hash| hash.to_string())
     })?;
 
     Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())
@@ -598,15 +472,14 @@ fn distributionx_close_impl(args: &str) -> Result<String, String> {
         airdrop_id.as_ref(),
     ])?;
 
-    let mut account_ids: Vec<AccountId> = vec![
-        airdrop,
-        vault,
-        recovery,
-        distributor,
-    ];
-    let signer_ids: Vec<AccountId> = vec![
-        distributor,
-    ];
+    if wallet.get_account_public_signing_key(distributor).is_none() {
+        return Err(format!("signing key not found for {}", distributor));
+    }
+    let mut account_identities = Vec::new();
+    account_identities.push(AccountIdentity::PublicNoSign(airdrop));
+    account_identities.push(AccountIdentity::PublicNoSign(vault));
+    account_identities.push(AccountIdentity::PublicNoSign(recovery));
+    account_identities.push(AccountIdentity::Public(distributor));
 
     let instruction = DistributionxInstruction::Close {
         airdrop_id,
@@ -614,22 +487,11 @@ fn distributionx_close_impl(args: &str) -> Result<String, String> {
 
     let rt = get_runtime();
     let tx_hash = rt.block_on(async {
-        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await
-            .map_err(|e| format!("nonces: {}", e))?;
-        let mut signing_keys = Vec::new();
-        for sid in &signer_ids {
-            let key = wallet.storage().user_data
-                .get_pub_account_signing_key(*sid)
-                .ok_or_else(|| format!("signing key not found for {}", sid))?;
-            signing_keys.push(key);
-        }
-        let message = Message::try_new(program_id, account_ids, nonces, instruction)
-            .map_err(|e| format!("message: {:?}", e))?;
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await
+        let instruction_data = Program::serialize_instruction(instruction)
+            .map_err(|e| format!("instruction: {}", e))?;
+        wallet.send_pub_tx(account_identities, instruction_data, program_id).await
             .map_err(|e| format!("submit: {}", e))
-            .map(|r| hex::encode(r.0))
+            .map(|hash| hash.to_string())
     })?;
 
     Ok(json!({"success": true, "tx_hash": tx_hash}).to_string())

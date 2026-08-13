@@ -58,6 +58,7 @@ Item {
     property var airdrops: []
     property string selectedAirdropId: ""
     property string registryError: ""
+    property bool clientModuleReady: false
     property int registryRefreshAttempts: 0
     property bool devUiEnabled: false
     property bool debugUiEnabled: false
@@ -79,6 +80,7 @@ Item {
     property int lastTotalFunded: 0
     property int lastTotalClaimed: 0
     property string lastClaimTxId: ""
+    property string lastTokenSettlementTxId: ""
     property string lastClaimAmount: ""
     property string lastProofPath: ""
     property string claimEligibilityStatus: "unchecked"
@@ -271,7 +273,7 @@ Item {
         items.push({ label: "RPC", value: testnetRpc !== "" ? "Connected" : "Missing", ok: testnetRpc !== "" })
         items.push({ label: "Distributor signer", value: distributorAccount !== "" ? "Configured" : "Missing", ok: distributorAccount !== "" })
         items.push({ label: "Token id", value: tokenId !== "" ? "Configured" : "Missing", ok: tokenId !== "" })
-        items.push({ label: "Token source", value: tokenSourceAccount !== "" ? "Configured" : "Missing", ok: tokenSourceAccount !== "" })
+        items.push({ label: "Custom-token source", value: tokenSourceAccount !== "" ? "Configured" : "Optional", ok: true })
         items.push({ label: "Recovery account", value: recoveryAddress !== "" ? "Configured" : "Missing", ok: recoveryAddress !== "" })
         var relayerOk = relayerUrl !== "" && claimSubmitCommandConfigured
         var relayerValue = relayerUrl !== "" && claimSubmitCommandConfigured ? "Configured" : "Missing"
@@ -302,7 +304,6 @@ Item {
         if (testnetRpc === "") missing.push("LEZ_RPC_URL")
         if (distributorAccount === "") missing.push("LEZ_DEPLOYER_WALLET")
         if (tokenId === "") missing.push("DISTRIBUTIONX_TOKEN_ID")
-        if (tokenSourceAccount === "") missing.push("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT")
         if (recoveryAddress === "") missing.push("DISTRIBUTIONX_RECOVERY_ADDRESS")
         if (serializedLezTxPath === "") missing.push("DISTRIBUTIONX_SERIALIZED_LEZ_TX")
         if (!initSubmitCommandConfigured) missing.push("DISTRIBUTIONX_INIT_SUBMIT_COMMAND")
@@ -319,18 +320,22 @@ Item {
 
     function refreshAirdrops() {
         registryError = ""
+        clientModuleReady = false
         var response = callClient("listAirdrops", [])
         if (!responseHas(response, "AIRDROPS_OK")) {
             airdrops = []
-            console.log("DISTRIBUTIONX_REGISTRY_EMPTY_OR_UNAVAILABLE", friendlyError(response))
+            registryError = friendlyError(response)
+            console.log("DISTRIBUTIONX_REGISTRY_EMPTY_OR_UNAVAILABLE", registryError)
             return false
         }
         var parsed = parseClientJson(response)
         if (!parsed || !parsed.airdrops) {
             airdrops = []
+            registryError = "Invalid registry response"
             console.log("DISTRIBUTIONX_REGISTRY_PARSE_EMPTY", String(response))
             return false
         }
+        clientModuleReady = true
         airdrops = parsed.airdrops
         if (airdrops.length > 0 && selectedAirdropId === "") {
             selectedAirdropId = airdrops[0].airdrop_id
@@ -369,6 +374,25 @@ Item {
         return selected && selected.token_source_account ? String(selected.token_source_account) : ""
     }
 
+    function customTokenSettlementConfigured() {
+        return activeTokenSourceAccount() !== ""
+    }
+
+    function customTokenSettlementConfirmed() {
+        return lastTokenSettlementTxId !== ""
+    }
+
+    function claimCompletionStatus() {
+        if (customTokenSettlementConfirmed()) return "Custom-token settlement confirmed"
+        if (customTokenSettlementConfigured() && lastClaimTxId === "") return "Claim settlement"
+        return "Native payout confirmed"
+    }
+
+    function claimCompleted() {
+        return sampleStatus === "Native payout confirmed"
+            || sampleStatus === "Custom-token settlement confirmed"
+    }
+
     function selectRegistryAirdrop(airdropId, name) {
         selectedAirdropId = airdropId
         airdropName = name
@@ -377,7 +401,7 @@ Item {
         claimLinkError = ""
         var selected = selectedAirdrop()
         if (selected && selected.token_id) tokenId = String(selected.token_id)
-        if (selected && selected.token_source_account) tokenSourceAccount = String(selected.token_source_account)
+        tokenSourceAccount = selected && selected.token_source_account ? String(selected.token_source_account) : ""
         resetClaimEligibility()
         resetClaimantBalance()
     }
@@ -477,6 +501,7 @@ Item {
         lastProofPath = ""
         lastProofDurationSeconds = 0
         lastClaimTxId = ""
+        lastTokenSettlementTxId = ""
         lastClaimAmount = ""
         if (!sampleRunning) {
             sampleStatus = "Ready to claim"
@@ -528,6 +553,10 @@ Item {
     }
 
     function claimantBalanceText() {
+        if (!customTokenSettlementConfigured()) {
+            if (claimEligibilityStatus === "claimed" || lastClaimTxId !== "") return "Native payout confirmed"
+            return "Native payout"
+        }
         if (claimantTokenBalanceError !== "") return "unavailable"
         if (claimantBalanceCanShowTokenBalance()) return claimantTokenBalance + " tokens"
         if (claimEligibilityStatus === "eligible" || claimEligibilityStatus === "checking") return "0 tokens"
@@ -720,7 +749,7 @@ Item {
             return "The local deploy tool is not available. Run the Basecamp launcher from the prepared dev environment, then try Initialize again."
         }
         if (text.indexOf("signing key not found") !== -1) {
-            return "This distributor account is not in the local LEZ wallet. Use the configured local signer, or choose an account from NSSA_WALLET_HOME_DIR."
+            return "This distributor account is not in the local LEZ wallet. Use an account from the configured LEE_WALLET_HOME_DIR."
         }
         if (text.indexOf("E_DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND_REQUIRED") !== -1) {
             return "Configuration error: set DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND before submitting the claim."
@@ -915,9 +944,9 @@ Item {
     function initializeDistribution() {
         sampleError = ""
         distributorError = ""
-        if (testnetRpc === "" || distributorAccount === "" || tokenId === "" || tokenSourceAccount === "" || recoveryAddress === "" || eligibilityCsvPath === "") {
+        if (testnetRpc === "" || distributorAccount === "" || tokenId === "" || recoveryAddress === "" || eligibilityCsvPath === "") {
             distributorStatus = "Setup failed"
-            distributorError = "Configuration error: set LEZ_RPC_URL, LEZ_DEPLOYER_WALLET, DISTRIBUTIONX_TOKEN_ID, DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT, DISTRIBUTIONX_RECOVERY_ADDRESS, and the eligibility CSV path."
+            distributorError = "Configuration error: set LEZ_RPC_URL, LEZ_DEPLOYER_WALLET, DISTRIBUTIONX_TOKEN_ID, DISTRIBUTIONX_RECOVERY_ADDRESS, and the eligibility CSV path."
             sampleError = distributorError
             return false
         }
@@ -948,6 +977,7 @@ Item {
     function queryClaimantBalance() {
         claimantTokenBalance = ""
         claimantTokenBalanceError = ""
+        if (!customTokenSettlementConfigured()) return true
         if (testnetRpc === "") {
             claimantTokenBalanceError = "LEZ RPC URL is not configured."
             return false
@@ -1271,6 +1301,7 @@ Item {
         lastTotalFunded = 0
         lastTotalClaimed = 0
         lastClaimTxId = ""
+        lastTokenSettlementTxId = ""
         lastClaimAmount = ""
         lastProofPath = ""
         lastProofDurationSeconds = 0
@@ -1292,17 +1323,18 @@ Item {
     function rememberClaimReceipt(parsed) {
         if (!parsed) return
         if (parsed.tx_id) lastClaimTxId = String(parsed.tx_id)
+        lastTokenSettlementTxId = parsed.token_tx_id ? String(parsed.token_tx_id) : ""
         if (parsed.amount !== undefined) lastClaimAmount = String(parsed.amount)
         if (parsed.total_claimed !== undefined) lastTotalClaimed = Number(parsed.total_claimed) || 0
         claimEligibilityStatus = "claimed"
         claimEligibilityError = ""
         if (parsed.amount !== undefined) claimEligibilityAmount = String(parsed.amount)
-        Qt.callLater(queryClaimantBalance)
+        if (customTokenSettlementConfirmed()) Qt.callLater(queryClaimantBalance)
     }
 
     function maybeFinishAutoRunSample() {
         if (!autoQuitAfterSample) return
-        console.log("DISTRIBUTIONX_AUTO_RUN_SAMPLE_RESULT", sampleStatus === "Tokens delivered", sampleStatus)
+        console.log("DISTRIBUTIONX_AUTO_RUN_SAMPLE_RESULT", claimCompleted(), sampleStatus)
         console.log("DISTRIBUTIONX_AUTO_RUN_SAMPLE_ERROR", sampleError)
         console.log("DISTRIBUTIONX_AUTO_RUN_SAMPLE_DETAIL", sampleDetail)
         Qt.callLater(Qt.quit)
@@ -1361,11 +1393,11 @@ Item {
     function runNextSampleStep() {
         if (!sampleRunning) return
         if (sampleStepIndex >= sampleSteps.length) {
-            sampleStatus = "Tokens delivered"
+            sampleStatus = claimCompletionStatus()
             sampleRunning = false
             activeOperation = ""
             refreshAirdrops()
-            Qt.callLater(queryClaimantBalance)
+            if (customTokenSettlementConfirmed()) Qt.callLater(queryClaimantBalance)
             maybeFinishAutoRunSample()
             return
         }
@@ -1448,6 +1480,7 @@ Item {
         lastProofPath = ""
         lastProofDurationSeconds = 0
         lastClaimTxId = ""
+        lastTokenSettlementTxId = ""
         lastClaimAmount = ""
 
         var configError = testnetConfigurationError()
@@ -1466,7 +1499,7 @@ Item {
             ["startCheckEligibility", [airdropName, distributionStateDir + "/bundle.json", distributionStateDir + "/wallet.seed", distributionStateDir + "/shielded_destination.json"], "ELIGIBILITY_OK", "Checking claim eligibility", "checkEligibility"],
             ["startProve", [airdropName, distributionStateDir + "/bundle.json", distributionStateDir + "/wallet.seed", distributionStateDir + "/shielded_destination.json"], "PROVE_LOCAL_OK", "Generating your private proof", "prove"],
             ["startVerify", [airdropName, distributionStateDir + "/proof.json"], "VERIFY_OK", "Proof verified", "verify"],
-            ["startClaim", [airdropName, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Delivering tokens", "claim"]
+            ["startClaim", [airdropName, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Submitting claim", "claim"]
         ]
         Qt.callLater(runNextSampleStep)
         return true
@@ -1484,6 +1517,7 @@ Item {
         lastProofPath = ""
         lastProofDurationSeconds = 0
         lastClaimTxId = ""
+        lastTokenSettlementTxId = ""
         lastClaimAmount = ""
 
         var configError = claimConfigurationError()
@@ -1504,7 +1538,7 @@ Item {
             ["startCheckEligibility", [airdrop, claimBundlePath(), distributionStateDir + "/wallet.seed", destinationPacket], "ELIGIBILITY_OK", "Checking claim eligibility", "checkEligibility"],
             ["startProve", [airdrop, claimBundlePath(), distributionStateDir + "/wallet.seed", destinationPacket], "PROVE_LOCAL_OK", "Generating your private proof", "prove"],
             ["startVerify", [airdrop, distributionStateDir + "/proof.json"], "VERIFY_OK", "Proof verified", "verify"],
-            ["startClaim", [airdrop, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Delivering tokens", "claim"]
+            ["startClaim", [airdrop, distributionStateDir + "/proof.json", relayerUrl, serializedLezTxPath], "CLAIM_OK", "Submitting claim", "claim"]
         ]
         Qt.callLater(runNextSampleStep)
         return true

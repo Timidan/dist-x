@@ -133,7 +133,7 @@ pub fn derive_shielded_destination(
 
 #[expect(
     clippy::big_endian_bytes,
-    reason = "Matches rc5 key_protocol derivation"
+    reason = "Matches the LEZ v0.2.4 key_protocol derivation"
 )]
 fn derive_nullifier_secret_key(
     secret_spending_key: &[u8; 32],
@@ -155,7 +155,7 @@ fn derive_nullifier_secret_key(
 
 #[expect(
     clippy::big_endian_bytes,
-    reason = "Matches rc5 key_protocol derivation"
+    reason = "Matches the LEZ v0.2.4 key_protocol derivation"
 )]
 fn derive_viewing_secret_key(
     secret_spending_key: &[u8; 32],
@@ -187,10 +187,18 @@ fn hmac_sha512(message: &[u8], key: &[u8]) -> [u8; 64] {
     mac.finalize().into_bytes().into()
 }
 
-pub fn compute_destination_commitment(packet: &ShieldedDestinationPacket) -> [u8; 32] {
-    compute_private_account_id(packet.npk, packet.identifier())
+pub fn compute_destination_commitment(
+    packet: &ShieldedDestinationPacket,
+) -> Result<[u8; 32], DistributionXClientError> {
+    compute_private_account_id(packet.npk, &packet.vpk, packet.identifier())
 }
 
-pub fn compute_private_account_id(npk: [u8; 32], identifier: u128) -> [u8; 32] {
-    *AccountId::from((&NullifierPublicKey(npk), identifier)).value()
+pub fn compute_private_account_id(
+    npk: [u8; 32],
+    vpk: &[u8],
+    identifier: u128,
+) -> Result<[u8; 32], DistributionXClientError> {
+    let viewing_public_key = ViewingPublicKey::from_bytes(vpk.to_vec())
+        .map_err(|_| DistributionXClientError::InvalidDestinationPacket)?;
+    Ok(*AccountId::from((&NullifierPublicKey(npk), &viewing_public_key, identifier)).value())
 }

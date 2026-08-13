@@ -58,6 +58,8 @@ fn main() {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("generated_ffi.rs"), &output.ffi_code)
         .expect("failed to write generated_ffi.rs");
+    std::fs::write(out_dir.join("generated_client.rs"), &output.client_code)
+        .expect("failed to write generated_client.rs");
 
     println!("cargo:rerun-if-changed=build.rs");
 }

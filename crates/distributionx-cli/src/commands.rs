@@ -317,17 +317,9 @@ fn init(
     fs::create_dir_all(&state_dir)?;
     let csv_text = fs::read_to_string(csv)?;
     let token_id = parse_id(token)?;
-    let token_source_account = token_source_account
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            std::env::var("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT")
-                .ok()
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_default();
+    let inherited_token_source = std::env::var("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT").ok();
+    let token_source_account =
+        resolve_token_source_account(token_source_account, inherited_token_source.as_deref());
     if !token_source_account.is_empty() {
         parse_id(&token_source_account)?;
     }
@@ -407,6 +399,13 @@ fn init(
         })
     );
     Ok(())
+}
+
+fn resolve_token_source_account(explicit: Option<&str>, inherited: Option<&str>) -> String {
+    match explicit {
+        Some(value) => value.trim().to_owned(),
+        None => inherited.unwrap_or_default().trim().to_owned(),
+    }
 }
 
 fn fund(airdrop: &str, amount: u64) -> CliResult<()> {
@@ -727,7 +726,7 @@ fn resolve_claim_destination_commitment_for_check(
     }
     if let Some(path) = destination_packet {
         let packet = read_destination_packet_for_claim(Path::new(&path))?;
-        return Ok(compute_destination_commitment(&packet));
+        return Ok(compute_destination_commitment(&packet)?);
     }
     if let Some(value) = claim_destination_commitment {
         return parse_id(&value)
@@ -828,7 +827,7 @@ fn resolve_claim_destination(
     if let Some(path) = destination_packet {
         let packet = read_destination_packet(Path::new(&path))?;
         return Ok(ResolvedDestination {
-            commitment: compute_destination_commitment(&packet),
+            commitment: compute_destination_commitment(&packet)?,
             packet: Some(packet),
         });
     }
@@ -884,12 +883,13 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
             return Err(boxed_err("E_PROGRAM_7"));
         }
         let token_settlement = token_settlement_for_claim(&state, &claim_tx, amount)?;
-        let tx_id = submit_claim_to_testnet(
+        let submit_response = submit_claim_to_testnet(
             None,
             relayer,
             Path::new(serialized_lez_tx),
             token_settlement.as_ref(),
         )?;
+        let tx_id = submit_response.tx_id.clone();
         state.total_claimed = state
             .total_claimed
             .checked_add(amount)
@@ -907,7 +907,9 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
                 "relayer": relayer,
                 "amount": amount,
                 "total_claimed": state.total_claimed,
-                "tx_id": tx_id
+                "tx_id": tx_id,
+                "token_tx_id": submit_response.token_tx_id,
+                "token_block_id": submit_response.token_block_id,
             })
         );
         return Ok(());
@@ -937,12 +939,13 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
     )
     .map_err(|err| boxed_err(format!("E_PROGRAM_{}", err.0)))?;
     let token_settlement = token_settlement_for_claim(&state, &claim_tx, amount)?;
-    let tx_id = submit_claim_to_testnet(
+    let submit_response = submit_claim_to_testnet(
         Some(&proof),
         relayer,
         Path::new(serialized_lez_tx),
         token_settlement.as_ref(),
     )?;
+    let tx_id = submit_response.tx_id.clone();
     state.total_claimed = state
         .total_claimed
         .checked_add(amount)
@@ -960,7 +963,9 @@ fn claim(airdrop: &str, proof: &str, relayer: &str, serialized_lez_tx: &str) -> 
             "relayer": relayer,
             "amount": amount,
             "total_claimed": state.total_claimed,
-            "tx_id": tx_id
+            "tx_id": tx_id,
+            "token_tx_id": submit_response.token_tx_id,
+            "token_block_id": submit_response.token_block_id,
         })
     );
     Ok(())
@@ -1001,7 +1006,13 @@ fn token_settlement_recipient(claim_tx: &ClaimTxFile) -> CliResult<(String, Opti
     let token_identifier = identifier
         .checked_add(1)
         .ok_or_else(|| boxed_err("E_TOKEN_SETTLEMENT_RECIPIENT_IDENTIFIER_OVERFLOW"))?;
-    let account_id = compute_private_account_id(npk, token_identifier);
+    let recipient_vpk = claim_tx
+        .recipient_vpk
+        .as_deref()
+        .ok_or_else(|| boxed_err("E_TOKEN_SETTLEMENT_RECIPIENT_VPK_MISSING"))?;
+    let recipient_vpk = hex::decode(recipient_vpk)
+        .map_err(|err| boxed_err(format!("E_TOKEN_SETTLEMENT_RECIPIENT_VPK_INVALID:{err}")))?;
+    let account_id = compute_private_account_id(npk, &recipient_vpk, token_identifier)?;
     Ok((
         format!("Private/{}", hex::encode(account_id)),
         Some(hex::encode(token_identifier.to_le_bytes())),
@@ -1090,7 +1101,7 @@ fn attest(airdrop: &str) -> CliResult<()> {
 
 fn inspect_destination(destination_packet: &Path) -> CliResult<()> {
     let packet = read_destination_packet(destination_packet)?;
-    let commitment = compute_destination_commitment(&packet);
+    let commitment = compute_destination_commitment(&packet)?;
     println!(
         "{}",
         serde_json::json!({
@@ -1122,7 +1133,7 @@ fn create_destination(out_dir: &Path) -> CliResult<()> {
 fn write_shielded_destination_files(out_dir: &Path) -> CliResult<ShieldedDestinationFiles> {
     fs::create_dir_all(out_dir)?;
     let destination = generate_shielded_destination();
-    let claim_destination_commitment = compute_destination_commitment(&destination.packet);
+    let claim_destination_commitment = compute_destination_commitment(&destination.packet)?;
     let claim_destination_commitment_path = out_dir.join("claim_destination_commitment.txt");
     let shielded_destination_path = out_dir.join("shielded_destination.json");
     let shielded_destination_keys_path = out_dir.join("shielded_destination_keys.json");
@@ -1656,28 +1667,22 @@ fn default_wallet_path() -> String {
     if let Ok(path) = std::env::var("LEE_WALLET_HOME_DIR") {
         return path;
     }
-    if let Ok(path) = std::env::var("NSSA_WALLET_HOME_DIR") {
-        return path;
-    }
     if let Ok(repo_root) = std::env::var("DISTRIBUTIONX_REPO_ROOT") {
-        let path = PathBuf::from(repo_root).join(".scaffold/wallet");
-        if path.exists() {
-            return path.display().to_string();
-        }
+        return PathBuf::from(repo_root)
+            .join("target/lez-v0.2.4-wallet")
+            .display()
+            .to_string();
     }
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     if let Some(root) = Path::new(manifest_dir)
         .parent()
         .and_then(|path| path.parent())
     {
-        let path = root.join(".scaffold/wallet");
-        if path.exists() {
-            return path.display().to_string();
-        }
+        return root.join("target/lez-v0.2.4-wallet").display().to_string();
     }
     std::env::var("HOME")
-        .map(|home| format!("{home}/.nssa/wallet"))
-        .unwrap_or_else(|_| ".nssa/wallet".to_string())
+        .map(|home| format!("{home}/.lee/wallet"))
+        .unwrap_or_else(|_| ".lee/wallet".to_string())
 }
 
 fn method_id() -> CliResult<()> {
@@ -2113,7 +2118,7 @@ impl ClaimTxFile {
             None => prepared.proof.journal.clone(),
         };
         let recipient_prefix = if let Some(packet) = destination_packet {
-            let destination_commitment = compute_destination_commitment(packet);
+            let destination_commitment = compute_destination_commitment(packet)?;
             if destination_commitment != journal.claim_destination_commitment {
                 return Err(boxed_err("E_DESTINATION_PACKET_MISMATCH"));
             }
@@ -2197,7 +2202,7 @@ fn submit_claim_to_testnet(
     relayer: &str,
     tx_path: &Path,
     token_settlement: Option<&TokenSettlementRequest>,
-) -> CliResult<String> {
+) -> CliResult<RelayerSubmitResponse> {
     let command = std::env::var("DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND").ok();
     let serialized_lez_tx = match fs::read(tx_path) {
         Ok(bytes) if !bytes.is_empty() => bytes,
@@ -2253,7 +2258,17 @@ fn submit_claim_to_testnet(
     if response.tx_id.trim().is_empty() {
         return Err(boxed_err("E_CLAIM_SUBMIT_EMPTY_TX_ID"));
     }
-    Ok(response.tx_id)
+    if token_settlement.is_some()
+        && response
+            .token_tx_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(boxed_err("E_CLAIM_SUBMIT_EMPTY_TOKEN_TX_ID"));
+    }
+    Ok(response)
 }
 
 /// Submit a signed transaction request via an operator-supplied bash command.
@@ -2371,6 +2386,18 @@ mod tests {
     use distributionx_wallet_ref::MerklePathNode;
 
     #[test]
+    fn explicit_empty_token_source_disables_inherited_custom_token_settlement() {
+        assert_eq!(
+            resolve_token_source_account(Some("  "), Some("Public/inherited-token-source")),
+            ""
+        );
+        assert_eq!(
+            resolve_token_source_account(None, Some(" Public/inherited-token-source ")),
+            "Public/inherited-token-source"
+        );
+    }
+
+    #[test]
     fn sample_fixture_writes_lez_private_destination_packet() {
         let out_dir = std::env::temp_dir().join(format!(
             "distributionx-sample-fixture-{}",
@@ -2462,7 +2489,7 @@ mod tests {
     #[test]
     fn claim_tx_file_carries_local_ppe_witness_for_private_destination() {
         let destination = generate_shielded_destination().packet;
-        let destination_commitment = compute_destination_commitment(&destination);
+        let destination_commitment = compute_destination_commitment(&destination).unwrap();
         let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], destination_commitment);
         let prepared = PreparedClaim {
             proof: ProofArtifact {
@@ -2529,7 +2556,7 @@ mod tests {
     #[test]
     fn token_settlement_uses_sibling_private_identifier_for_ppe_recipient() {
         let destination = generate_shielded_destination().packet;
-        let destination_commitment = compute_destination_commitment(&destination);
+        let destination_commitment = compute_destination_commitment(&destination).unwrap();
         let journal = ClaimJournal::new([6u8; 32], [7u8; 32], 1, [8u8; 32], destination_commitment);
         let prepared = PreparedClaim {
             proof: ProofArtifact {
@@ -2564,7 +2591,9 @@ mod tests {
             token_recipient,
             format!(
                 "Private/{}",
-                hex::encode(compute_private_account_id(destination.npk, 1))
+                hex::encode(
+                    compute_private_account_id(destination.npk, &destination.vpk, 1,).unwrap()
+                )
             )
         );
         assert_eq!(

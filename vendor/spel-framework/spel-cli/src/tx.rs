@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::process;
 use lee::program::Program;
-use lee::public_transaction::{Message, WitnessSet};
-use lee::{AccountId, PublicTransaction};
+use lee::AccountId;
 use lee_core::program::ProgramId;
 use lee_core::account::Nonce;
 use spel_framework_core::idl::{IdlSeed, SpelIdl, IdlInstruction};
@@ -14,11 +13,8 @@ use crate::parse::{parse_value, ParsedValue};
 use crate::serialize::serialize_to_risc0;
 use crate::pda::compute_pda_from_seeds;
 use crate::cli::{snake_to_kebab, to_pascal_case};
-use common::transaction::LeeTransaction;
-use hex;
-use sequencer_service_rpc::RpcClient as _;
 use serde_json::{json, Value};
-use wallet::WalletCore;
+use wallet::{AccountIdentity, WalletCore};
 
 /// Format PDA seeds into a display string for human-readable output.
 /// E.g. `[program_id, "owner", Account(vault)]`
@@ -70,7 +66,7 @@ pub async fn execute_instruction(
     for (key, bin_path) in extra_bins {
         if !args.contains_key(key) {
             if let Ok(bytes) = fs::read(bin_path) {
-                if let Ok(program) = Program::new(bytes) {
+                if let Ok(program) = Program::new(bytes.into()) {
                     let id = program.id();
                     let id_str: Vec<String> = id.iter().map(|w| w.to_string()).collect();
                     let val = id_str.join(",");
@@ -178,7 +174,7 @@ pub async fn execute_instruction(
                 eprintln!("   Or configure in spel.toml.");
                 process::exit(1);
             });
-            let program = Program::new(program_bytecode).unwrap_or_else(|e| {
+            let program = Program::new(program_bytecode.into()).unwrap_or_else(|e| {
                 eprintln!("❌ Failed to load program: {:?}", e);
                 process::exit(1);
             });
@@ -329,7 +325,7 @@ pub async fn execute_instruction(
     // ─── Transaction submission ─────────────────────────────────
     say!("📤 Submitting transaction...");
 
-    let wallet_core = WalletCore::from_env().unwrap_or_else(|e| {
+    let wallet_core = WalletCore::from_env().await.unwrap_or_else(|e| {
         eprintln!("❌ Failed to initialize wallet: {:?}", e);
         eprintln!("   Set LEE_WALLET_HOME_DIR environment variable");
         process::exit(1);
@@ -341,7 +337,6 @@ pub async fn execute_instruction(
 
     if has_private {
         // ─── Privacy-preserving transaction ──────────────────
-        use wallet::PrivacyPreservingAccount;
         use lee::privacy_preserving_transaction::circuit::ProgramWithDependencies;
 
         let program = program_obj.unwrap_or_else(|| {
@@ -353,7 +348,7 @@ pub async fn execute_instruction(
         let mut dependencies = HashMap::new();
         for (_, bin_path) in extra_bins {
             if let Ok(bytes) = fs::read(bin_path) {
-                if let Ok(dep_program) = Program::new(bytes) {
+                if let Ok(dep_program) = Program::new(bytes.into()) {
                     dependencies.insert(dep_program.id(), dep_program);
                 }
             }
@@ -361,7 +356,7 @@ pub async fn execute_instruction(
         let program_with_deps = ProgramWithDependencies::new(program, dependencies);
 
         // Build privacy-preserving account list
-        let mut pp_accounts: Vec<PrivacyPreservingAccount> = Vec::new();
+        let mut pp_accounts: Vec<AccountIdentity> = Vec::new();
         for acc in &ix.accounts {
             if acc.rest {
                 if let Some((_, entries)) = rest_accounts.iter().find(|(n, _)| *n == acc.name) {
@@ -370,9 +365,13 @@ pub async fn execute_instruction(
                         arr.copy_from_slice(bytes);
                         let account_id = AccountId::new(arr);
                         if *is_priv {
-                            pp_accounts.push(PrivacyPreservingAccount::PrivateOwned(account_id));
+                            pp_accounts.push(AccountIdentity::PrivateOwned(account_id));
                         } else {
-                            pp_accounts.push(PrivacyPreservingAccount::Public(account_id));
+                            pp_accounts.push(if acc.signer {
+                                AccountIdentity::Public(account_id)
+                            } else {
+                                AccountIdentity::PublicNoSign(account_id)
+                            });
                         }
                     }
                 }
@@ -382,9 +381,13 @@ pub async fn execute_instruction(
                     process::exit(1);
                 });
                 if *is_priv {
-                    pp_accounts.push(PrivacyPreservingAccount::PrivateOwned(id));
+                    pp_accounts.push(AccountIdentity::PrivateOwned(id));
                 } else {
-                    pp_accounts.push(PrivacyPreservingAccount::Public(id));
+                    pp_accounts.push(if acc.signer {
+                        AccountIdentity::Public(id)
+                    } else {
+                        AccountIdentity::PublicNoSign(id)
+                    });
                 }
             } else {
                 // PDA account — always public
@@ -392,7 +395,20 @@ pub async fn execute_instruction(
                     eprintln!("❌ Account '{}' not resolved", acc.name);
                     process::exit(1);
                 });
-                pp_accounts.push(PrivacyPreservingAccount::Public(id));
+                pp_accounts.push(if acc.signer {
+                    AccountIdentity::Public(id)
+                } else {
+                    AccountIdentity::PublicNoSign(id)
+                });
+            }
+        }
+
+        for identity in &pp_accounts {
+            if let AccountIdentity::Public(id) = identity {
+                if wallet_core.get_account_public_signing_key(*id).is_none() {
+                    eprintln!("❌ Signing key not found for account {}", id);
+                    process::exit(1);
+                }
             }
         }
 
@@ -406,15 +422,10 @@ pub async fn execute_instruction(
         });
 
         say!("📤 Privacy-preserving transaction submitted!");
-        say!("   tx_hash: {}", hex::encode(response.0));
+        say!("   tx_hash: {}", response);
         say!("   Waiting for confirmation...");
 
-        let poller = wallet::poller::TxPoller::new(
-            wallet_core.config(),
-            wallet_core.sequencer_client.clone(),
-        );
-
-        match poller.poll_tx(response).await {
+        match wallet_core.poll_transaction(response).await {
             Ok(_) => say!("✅ Transaction confirmed — included in a block."),
             Err(e) => {
                 eprintln!("❌ Transaction NOT confirmed: {e:#}");
@@ -423,14 +434,19 @@ pub async fn execute_instruction(
         }
     } else {
         // ─── Public transaction (existing path) ──────────────
-        let mut account_ids: Vec<AccountId> = Vec::new();
+        let mut account_identities: Vec<AccountIdentity> = Vec::new();
         for acc in &ix.accounts {
             if acc.rest {
                 if let Some((_, entries)) = rest_accounts.iter().find(|(n, _)| *n == acc.name) {
                     for (bytes, _) in entries {
                         let mut arr = [0u8; 32];
                         arr.copy_from_slice(bytes);
-                        account_ids.push(AccountId::new(arr));
+                        let id = AccountId::new(arr);
+                        account_identities.push(if acc.signer {
+                            AccountIdentity::Public(id)
+                        } else {
+                            AccountIdentity::PublicNoSign(id)
+                        });
                     }
                 }
             } else {
@@ -438,36 +454,24 @@ pub async fn execute_instruction(
                     eprintln!("❌ Account '{}' not resolved", acc.name);
                     process::exit(1);
                 });
-                account_ids.push(*id);
+                account_identities.push(if acc.signer {
+                    AccountIdentity::Public(*id)
+                } else {
+                    AccountIdentity::PublicNoSign(*id)
+                });
             }
         }
 
-        let signer_accounts: Vec<AccountId> = ix.accounts.iter()
-            .filter(|a| a.signer)
-            .map(|a| *account_map.get(&a.name).unwrap())
-            .collect();
+        for identity in &account_identities {
+            if let AccountIdentity::Public(id) = identity {
+                if wallet_core.get_account_public_signing_key(*id).is_none() {
+                    eprintln!("❌ Signing key not found for account {}", id);
+                    process::exit(1);
+                }
+            }
+        }
 
-        let nonces = if signer_accounts.is_empty() {
-            vec![]
-        } else {
-            wallet_core.get_accounts_nonces(signer_accounts.clone()).await.unwrap_or_else(|e| {
-                eprintln!("❌ Failed to fetch nonces: {:?}", e);
-                process::exit(1);
-            })
-        };
-
-        let signing_keys: Vec<_> = signer_accounts.iter().map(|id| {
-            wallet_core.storage().user_data.get_pub_account_signing_key(*id).unwrap_or_else(|| {
-                eprintln!("❌ Signing key not found for account {}", id);
-                process::exit(1);
-            })
-        }).collect();
-
-        let message = Message::new_preserialized(program_id, account_ids, nonces, instruction_data);
-        let witness_set = WitnessSet::for_message(&message, &signing_keys);
-        let tx = PublicTransaction::new(message, witness_set);
-
-        let tx_hash = wallet_core.sequencer_client.send_transaction(LeeTransaction::Public(tx)).await.unwrap_or_else(|e| {
+        let tx_hash = wallet_core.send_pub_tx(account_identities, instruction_data, program_id).await.unwrap_or_else(|e| {
             eprintln!("❌ Failed to submit transaction: {:?}", e);
             process::exit(1);
         });
@@ -476,12 +480,7 @@ pub async fn execute_instruction(
         say!("   tx_hash: {}", tx_hash);
         say!("   Waiting for confirmation...");
 
-        let poller = wallet::poller::TxPoller::new(
-            wallet_core.config(),
-            wallet_core.sequencer_client.clone(),
-        );
-
-        match poller.poll_tx(tx_hash).await {
+        match wallet_core.poll_transaction(tx_hash).await {
             Ok(_) => say!("✅ Transaction confirmed — included in a block."),
             Err(e) => {
                 eprintln!("❌ Transaction NOT confirmed: {e:#}");
@@ -500,8 +499,8 @@ async fn fetch_nonces_best_effort(signer_ids: Vec<AccountId>) -> Vec<Option<Nonc
     }
     let len = signer_ids.len();
     let result = async {
-        let wc = WalletCore::from_env().ok()?;
-        wc.get_accounts_nonces(signer_ids).await.ok()
+        let wc = WalletCore::from_env().await.ok()?;
+        wc.get_accounts_nonces(&signer_ids).await.ok()
     }.await;
     match result {
         Some(ns) => ns.into_iter().map(Some).collect(),

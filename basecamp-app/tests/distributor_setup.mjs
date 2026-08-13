@@ -44,7 +44,7 @@ test("distributor setup exposes the normal signer token and CSV controls", async
     await expectAnyText(app, ["Local signer selected"], "signer helper result");
   }
   await app.click("Continue");
-  await app.expectTexts(["Distribution name", "Eligibility CSV", "Mint token", "Token source account", "Generate sample CSV", "Validate CSV", "Initialize"]);
+  await app.expectTexts(["Distribution name", "Eligibility CSV", "Mint token", "Custom-token source account (optional)", "Generate sample CSV", "Validate CSV", "Initialize"]);
   if (process.env.DISTRIBUTIONX_TEST_HELPERS === "1") {
     await app.click("Mint token");
     await expectAnyText(app, ["Token minted"], "token helper result");

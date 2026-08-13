@@ -43,8 +43,45 @@ fn complete_framework_idl(
     for key in ["accounts", "types", "errors"] {
         copy_bundled_section_if_framework_empty(&mut framework, &bundled, key);
     }
+    copy_bundled_instruction_execution(&mut framework, &bundled);
 
     serde_json::to_string_pretty(&framework)
+}
+
+#[cfg(feature = "spel-idl")]
+fn copy_bundled_instruction_execution(
+    framework: &mut serde_json::Value,
+    bundled: &serde_json::Value,
+) {
+    let Some(framework_instructions) = framework
+        .get_mut("instructions")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let Some(bundled_instructions) = bundled
+        .get("instructions")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return;
+    };
+
+    for bundled_instruction in bundled_instructions {
+        let Some(name) = bundled_instruction
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(execution) = bundled_instruction.get("execution") else {
+            continue;
+        };
+        if let Some(framework_instruction) = framework_instructions.iter_mut().find(|candidate| {
+            candidate.get("name").and_then(serde_json::Value::as_str) == Some(name)
+        }) {
+            framework_instruction["execution"] = execution.clone();
+        }
+    }
 }
 
 #[cfg(feature = "spel-idl")]
@@ -498,6 +535,40 @@ mod tests {
         assert_eq!(
             instruction_surface(&bundled),
             instruction_surface(&framework)
+        );
+    }
+
+    #[test]
+    fn bundled_claim_ppe_is_private_only() {
+        let bundled = bundled_idl();
+        let claim = bundled["instructions"]
+            .as_array()
+            .expect("bundled IDL instructions")
+            .iter()
+            .find(|instruction| instruction["name"] == "claim_ppe")
+            .expect("claim_ppe instruction");
+
+        assert_eq!(
+            claim["execution"],
+            json!({"public": false, "private_owned": true})
+        );
+    }
+
+    #[cfg(feature = "spel-idl")]
+    #[test]
+    fn emitted_claim_ppe_preserves_private_execution_mode() {
+        let emitted: Value =
+            serde_json::from_str(&emit_idl_json()).expect("emitted IDL must be valid JSON");
+        let claim = emitted["instructions"]
+            .as_array()
+            .expect("emitted IDL instructions")
+            .iter()
+            .find(|instruction| instruction["name"] == "claim_ppe")
+            .expect("claim_ppe instruction");
+
+        assert_eq!(
+            claim["execution"],
+            json!({"public": false, "private_owned": true})
         );
     }
 }

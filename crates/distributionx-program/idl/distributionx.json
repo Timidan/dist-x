@@ -267,7 +267,8 @@
         {"name": "merkle_path_is_right", "type": {"vec": "bool"}},
         {"name": "now_unix", "type": "i64"}
       ],
-      "name": "claim_ppe"
+      "name": "claim_ppe",
+      "execution": {"public": false, "private_owned": true}
     },
     {
       "accounts": [

@@ -52,11 +52,17 @@ pub fn generate_ffi(idl: &SpelIdl) -> Result<String, String> {
     writeln!(out, "use std::os::raw::c_char;").unwrap();
     writeln!(out, "use serde_json::{{Value, json}};").unwrap();
     writeln!(out, "use sha2::{{Sha256, Digest}};").unwrap();
-    writeln!(out, "use lee::{{AccountId, ProgramId, PublicTransaction}};").unwrap();
-    writeln!(out, "use lee::public_transaction::{{Message, WitnessSet}};").unwrap();
+    writeln!(out, "use lee::{{program::Program, AccountId, ProgramId}};").unwrap();
     writeln!(out, "use lee_core::program::PdaSeed;").unwrap();
-    writeln!(out, "use sequencer_service_rpc::RpcClient as _;").unwrap();
-    writeln!(out, "use wallet::WalletCore;").unwrap();
+    writeln!(out, "use wallet::{{").unwrap();
+    writeln!(out, "    AccountIdentity, WalletCore,").unwrap();
+    writeln!(
+        out,
+        "    config::{{SequencerConnectionData, WalletConfigOverrides}},"
+    )
+    .unwrap();
+    writeln!(out, "    helperfunctions::{{fetch_config_path, fetch_persistent_storage_path, fetch_statistics_path}},").unwrap();
+    writeln!(out, "}};").unwrap();
 
     // Import or generate instruction type
     if let Some(ref itype) = idl.instruction_type {
@@ -303,7 +309,7 @@ pub fn generate_ffi(idl: &SpelIdl) -> Result<String, String> {
     // Global mutex to serialise env-var mutation + wallet init across FFI threads.
     // std::env::set_var is not thread-safe on its own; all FFI entry points that
     // call init_wallet hold this lock for the duration of the mutation + WalletCore
-    // construction so they cannot race on LEE_WALLET_HOME_DIR / LEE_SEQUENCER_URL.
+    // construction so they cannot race on LEE_WALLET_HOME_DIR.
     writeln!(
         out,
         "static WALLET_INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());"
@@ -323,21 +329,34 @@ pub fn generate_ffi(idl: &SpelIdl) -> Result<String, String> {
         "    std::env::set_var(\"LEE_WALLET_HOME_DIR\", wallet_path);"
     )
     .unwrap();
+    writeln!(out, "    let sequencer_addr = sequencer_url.parse().map_err(|e| format!(\"sequencer URL: {{}}\", e))?;").unwrap();
+    writeln!(out, "    let config_path = fetch_config_path().map_err(|e| format!(\"wallet config path: {{}}\", e))?;").unwrap();
+    writeln!(out, "    let storage_path = fetch_persistent_storage_path().map_err(|e| format!(\"wallet storage path: {{}}\", e))?;").unwrap();
+    writeln!(out, "    let statistics_path = fetch_statistics_path().map_err(|e| format!(\"wallet statistics path: {{}}\", e))?;").unwrap();
+    writeln!(out, "    let overrides = WalletConfigOverrides {{").unwrap();
+    writeln!(out, "        sequencers: Some(vec![SequencerConnectionData {{ sequencer_addr, basic_auth: None }}]),").unwrap();
+    writeln!(out, "        ..Default::default()").unwrap();
+    writeln!(out, "    }};").unwrap();
     writeln!(
         out,
-        "    std::env::set_var(\"LEE_SEQUENCER_URL\", sequencer_url);"
+        "    get_runtime().block_on(WalletCore::new_update_chain("
     )
     .unwrap();
     writeln!(
         out,
-        "    WalletCore::from_env().map_err(|e| format!(\"wallet init: {{}}\", e))"
+        "        config_path, storage_path, statistics_path, Some(overrides),"
     )
     .unwrap();
+    writeln!(out, "    )).map_err(|e| format!(\"wallet init: {{}}\", e))").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
     // Per-instruction FFI functions
-    for ix in &idl.instructions {
+    for ix in idl
+        .instructions
+        .iter()
+        .filter(|ix| crate::instruction_supports_public_submission(ix))
+    {
         let fn_name = format!("{}_{}", prefix, snake_case(&ix.name));
         let variant = pascal_case(&ix.name);
         let signer_accounts: Vec<&IdlAccountItem> =
@@ -461,22 +480,55 @@ pub fn generate_ffi(idl: &SpelIdl) -> Result<String, String> {
         }
         writeln!(out).unwrap();
 
-        // Build account_ids vec (non-rest accounts first, then rest)
-        writeln!(out, "    let mut account_ids: Vec<AccountId> = vec![").unwrap();
-        for acc in ix.accounts.iter().filter(|a| !a.rest) {
-            writeln!(out, "        {},", rust_ident(&acc.name)).unwrap();
-        }
-        writeln!(out, "    ];").unwrap();
-        for acc in ix.accounts.iter().filter(|a| a.rest) {
-            writeln!(out, "    account_ids.extend({});", rust_ident(&acc.name)).unwrap();
+        // Require every IDL-declared signer to be owned before submission.
+        for acc in &signer_accounts {
+            let name = rust_ident(&acc.name);
+            if acc.rest {
+                writeln!(out, "    for signer_id in &{name} {{").unwrap();
+                writeln!(
+                    out,
+                    "        if wallet.get_account_public_signing_key(*signer_id).is_none() {{"
+                )
+                .unwrap();
+                writeln!(out, "            return Err(format!(\"signing key not found for {{}}\", signer_id));").unwrap();
+                writeln!(out, "        }}").unwrap();
+                writeln!(out, "    }}").unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "    if wallet.get_account_public_signing_key({name}).is_none() {{"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "        return Err(format!(\"signing key not found for {{}}\", {name}));"
+                )
+                .unwrap();
+                writeln!(out, "    }}").unwrap();
+            }
         }
 
-        // Signer IDs
-        writeln!(out, "    let signer_ids: Vec<AccountId> = vec![").unwrap();
-        for acc in &signer_accounts {
-            writeln!(out, "        {},", rust_ident(&acc.name)).unwrap();
+        // Preserve the exact IDL account order and expand rest accounts in place.
+        writeln!(out, "    let mut account_identities = Vec::new();").unwrap();
+        for acc in &ix.accounts {
+            let name = rust_ident(&acc.name);
+            let identity = if acc.signer { "Public" } else { "PublicNoSign" };
+            if acc.rest {
+                writeln!(out, "    for account_id in {name} {{").unwrap();
+                writeln!(
+                    out,
+                    "        account_identities.push(AccountIdentity::{identity}(account_id));"
+                )
+                .unwrap();
+                writeln!(out, "    }}").unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "    account_identities.push(AccountIdentity::{identity}({name}));"
+                )
+                .unwrap();
+            }
         }
-        writeln!(out, "    ];").unwrap();
         writeln!(out).unwrap();
 
         // Build instruction
@@ -497,52 +549,25 @@ pub fn generate_ffi(idl: &SpelIdl) -> Result<String, String> {
         writeln!(out, "    let tx_hash = rt.block_on(async {{").unwrap();
         writeln!(
             out,
-            "        let nonces = wallet.get_accounts_nonces(signer_ids.clone()).await"
+            "        let instruction_data = Program::serialize_instruction(instruction)"
         )
         .unwrap();
         writeln!(
             out,
-            "            .map_err(|e| format!(\"nonces: {{}}\", e))?;"
-        )
-        .unwrap();
-        writeln!(out, "        let mut signing_keys = Vec::new();").unwrap();
-        writeln!(out, "        for sid in &signer_ids {{").unwrap();
-        writeln!(out, "            let key = wallet.storage().user_data").unwrap();
-        writeln!(out, "                .get_pub_account_signing_key(*sid)").unwrap();
-        writeln!(
-            out,
-            "                .ok_or_else(|| format!(\"signing key not found for {{}}\", sid))?;"
-        )
-        .unwrap();
-        writeln!(out, "            signing_keys.push(key);").unwrap();
-        writeln!(out, "        }}").unwrap();
-        writeln!(
-            out,
-            "        let message = Message::try_new(program_id, account_ids, nonces, instruction)"
+            "            .map_err(|e| format!(\"instruction: {{}}\", e))?;"
         )
         .unwrap();
         writeln!(
             out,
-            "            .map_err(|e| format!(\"message: {{:?}}\", e))?;"
+            "        wallet.send_pub_tx(account_identities, instruction_data, program_id).await"
         )
         .unwrap();
-        writeln!(
-            out,
-            "        let witness_set = WitnessSet::for_message(&message, &signing_keys);"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "        let tx = PublicTransaction::new(message, witness_set);"
-        )
-        .unwrap();
-        writeln!(out, "        wallet.sequencer_client.send_transaction(common::transaction::LeeTransaction::Public(tx)).await").unwrap();
         writeln!(
             out,
             "            .map_err(|e| format!(\"submit: {{}}\", e))"
         )
         .unwrap();
-        writeln!(out, "            .map(|r| hex::encode(r.0))").unwrap();
+        writeln!(out, "            .map(|hash| hash.to_string())").unwrap();
         writeln!(out, "    }})?;").unwrap();
         writeln!(out).unwrap();
         writeln!(
@@ -1047,9 +1072,9 @@ pub fn generate_account_fetch_functions(idl: &SpelIdl, prefix: &str, out: &mut S
             // Fetch and decode
             writeln!(out, "    let rt = get_runtime();").unwrap();
             writeln!(out, "    let account = rt.block_on(async {{").unwrap();
-            writeln!(out, "        wallet.sequencer_client.get_account(pda).await.map_err(|e| format!(\"get_account: {{e}}\"))").unwrap();
+            writeln!(out, "        wallet.get_account_public(pda).await.map_err(|e| format!(\"get_account: {{e}}\"))").unwrap();
             writeln!(out, "    }})?;").unwrap();
-            writeln!(out, "    let state = <{pascal_name}State as borsh::BorshDeserialize>::try_from_slice(&account.data).map_err(|e| format!(\"decode: {{e}}\"))?;").unwrap();
+            writeln!(out, "    let state = <{pascal_name}State as borsh::BorshDeserialize>::try_from_slice(account.data.as_ref()).map_err(|e| format!(\"decode: {{e}}\"))?;").unwrap();
 
             // Build JSON response
             writeln!(out, "    Ok(serde_json::json!({{").unwrap();
@@ -1088,7 +1113,11 @@ pub fn generate_header(idl: &SpelIdl) -> Result<String, String> {
     writeln!(out, "#endif").unwrap();
     writeln!(out).unwrap();
 
-    for ix in &idl.instructions {
+    for ix in idl
+        .instructions
+        .iter()
+        .filter(|ix| crate::instruction_supports_public_submission(ix))
+    {
         let fn_name = format!("{}_{}", prefix, snake_case(&ix.name));
         writeln!(out, "/* {} instruction */", ix.name).unwrap();
         writeln!(out, "char* {fn_name}(const char* args_json);").unwrap();

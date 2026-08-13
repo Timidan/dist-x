@@ -43,6 +43,7 @@ pub fn generate_from_idl_json(json: &str) -> Result<CodegenOutput, String> {
 
 /// Generate client + FFI code from a parsed IDL.
 pub fn generate_from_idl(idl: &SpelIdl) -> Result<CodegenOutput, String> {
+    validate_rest_accounts(idl)?;
     let client_code = codegen::generate_client(idl)?;
     let ffi_code = ffi_codegen::generate_ffi(idl)?;
     let header = ffi_codegen::generate_header(idl)?;
@@ -51,4 +52,40 @@ pub fn generate_from_idl(idl: &SpelIdl) -> Result<CodegenOutput, String> {
         ffi_code,
         header,
     })
+}
+
+/// Whether the generic client may submit this instruction as a public LEE
+/// transaction. Legacy IDLs omit `execution`, which retains the historical
+/// public default; an explicit private-only mode fails closed.
+pub(crate) fn instruction_supports_public_submission(instruction: &IdlInstruction) -> bool {
+    instruction
+        .execution
+        .as_ref()
+        .map_or(true, |execution| execution.public)
+}
+
+fn validate_rest_accounts(idl: &SpelIdl) -> Result<(), String> {
+    for instruction in &idl.instructions {
+        let rest_positions = instruction
+            .accounts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, account)| account.rest.then_some(index))
+            .collect::<Vec<_>>();
+        if rest_positions.len() > 1 {
+            return Err(format!(
+                "instruction `{}` has more than one rest account",
+                instruction.name
+            ));
+        }
+        if let Some(index) = rest_positions.first() {
+            if *index + 1 != instruction.accounts.len() {
+                return Err(format!(
+                    "instruction `{}` rest account must be the final account",
+                    instruction.name
+                ));
+            }
+        }
+    }
+    Ok(())
 }

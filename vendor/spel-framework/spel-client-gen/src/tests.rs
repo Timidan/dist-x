@@ -72,6 +72,34 @@ const SAMPLE_IDL: &str = r#"{
     "errors": []
 }"#;
 
+/// Mixed execution-mode IDL used to prove that private-only instructions stay
+/// serializable for custom PPE adapters without becoming public SDK methods.
+const PRIVATE_ONLY_INSTRUCTION_IDL: &str = r#"{
+    "version": "0.1.0",
+    "name": "privacy_gate",
+    "instructions": [
+        {
+            "name": "initialize",
+            "accounts": [],
+            "args": [],
+            "execution": {"public": true, "private_owned": false}
+        },
+        {
+            "name": "claim_ppe",
+            "accounts": [],
+            "args": [
+                {"name": "claimant_address", "type": {"array": ["u8", 32]}},
+                {"name": "salt", "type": {"array": ["u8", 32]}},
+                {"name": "merkle_siblings", "type": {"vec": {"array": ["u8", 32]}}}
+            ],
+            "execution": {"public": false, "private_owned": true}
+        }
+    ],
+    "accounts": [],
+    "types": [],
+    "errors": []
+}"#;
+
 #[test]
 fn test_parse_and_generate() {
     let output = generate_from_idl_json(SAMPLE_IDL).expect("codegen should succeed");
@@ -121,11 +149,14 @@ fn test_ffi_generation() {
     // FFI is self-contained (inline transaction building, no super::client import)
     assert!(!output.ffi_code.contains("use super::client::*"));
 
-    // FFI emits full WalletCore transaction building
-    assert!(output.ffi_code.contains("use wallet::WalletCore"));
+    // FFI emits v0.2.4 WalletCore transaction submission.
+    assert!(output.ffi_code.contains("AccountIdentity, WalletCore"));
     assert!(output.ffi_code.contains("tokio::runtime::Runtime::new"));
     assert!(output.ffi_code.contains("rt.block_on"));
-    assert!(output.ffi_code.contains("send_transaction"));
+    assert!(output.ffi_code.contains("send_pub_tx"));
+    assert!(output.ffi_code.contains("AccountIdentity::Public("));
+    assert!(output.ffi_code.contains("AccountIdentity::PublicNoSign("));
+    assert!(!output.ffi_code.contains("sequencer_client"));
 
     // FFI returns tx_hash JSON
     assert!(output.ffi_code.contains("tx_hash"));
@@ -145,6 +176,36 @@ fn test_header_generation() {
     assert!(output
         .header
         .contains("void my_multisig_free_string(char* s)"));
+}
+
+#[test]
+fn private_only_instruction_has_no_public_submission_surface() {
+    let output = generate_from_idl_json(PRIVATE_ONLY_INSTRUCTION_IDL)
+        .expect("mixed execution-mode IDL should generate");
+
+    // Custom PPE adapters still need the serializable instruction variant.
+    assert!(output.client_code.contains("ClaimPpe {"));
+    assert!(output.ffi_code.contains("ClaimPpe {"));
+
+    // Public instructions remain callable through every generated SDK surface.
+    assert!(output.client_code.contains("pub async fn initialize("));
+    assert!(output
+        .ffi_code
+        .contains("pub extern \"C\" fn privacy_gate_initialize("));
+    assert!(output
+        .header
+        .contains("char* privacy_gate_initialize(const char* args_json);"));
+
+    // A private-only instruction must never serialize its witness into send_pub_tx.
+    assert!(!output.client_code.contains("pub async fn claim_ppe("));
+    assert!(!output
+        .ffi_code
+        .contains("pub extern \"C\" fn privacy_gate_claim_ppe("));
+    assert!(!output
+        .header
+        .contains("char* privacy_gate_claim_ppe(const char* args_json);"));
+    assert_eq!(output.client_code.matches("send_pub_tx").count(), 1);
+    assert_eq!(output.ffi_code.matches("send_pub_tx").count(), 1);
 }
 
 #[test]
@@ -172,16 +233,17 @@ fn test_account_order_in_client() {
 }
 
 #[test]
-fn test_ffi_calls_client_methods() {
+fn test_ffi_uses_supported_wallet_api() {
     let output = generate_from_idl_json(SAMPLE_IDL).expect("codegen should succeed");
 
-    // The FFI impl builds instruction enum and submits transaction inline
+    // The FFI impl serializes the instruction and submits through WalletCore.
     let ffi = &output.ffi_code;
-    assert!(ffi.contains("Message::try_new"), "FFI should build Message");
     assert!(
-        ffi.contains("send_transaction"),
-        "FFI should submit transaction"
+        ffi.contains("Program::serialize_instruction"),
+        "FFI should serialize the instruction"
     );
+    assert!(ffi.contains("send_pub_tx"), "FFI should submit transaction");
+    assert!(!ffi.contains("sequencer_client"));
     assert!(
         ffi.contains("MyMultisigInstruction"),
         "FFI should reference instruction enum"
@@ -226,8 +288,49 @@ fn test_rest_accounts() {
     }"#;
     let output = generate_from_idl_json(idl).expect("should handle rest accounts");
     assert!(output.client_code.contains("pub signers: Vec<AccountId>"));
-    // FFI should handle rest accounts as optional array, defaulting to empty
-    assert!(output.ffi_code.contains("signers"));
+    let client_fixed = output
+        .client_code
+        .find("AccountIdentity::PublicNoSign(accounts.state)")
+        .expect("fixed client identity");
+    let client_rest = output
+        .client_code
+        .find("for account_id in accounts.signers")
+        .expect("trailing client rest identities");
+    assert!(client_fixed < client_rest);
+    let ffi_fixed = output
+        .ffi_code
+        .find("AccountIdentity::PublicNoSign(state)")
+        .expect("fixed FFI identity");
+    let ffi_rest = output
+        .ffi_code
+        .find("for account_id in signers")
+        .expect("trailing FFI rest identities");
+    assert!(ffi_fixed < ffi_rest);
+}
+
+#[test]
+fn test_rest_account_must_be_unique_and_trailing() {
+    let middle = r#"{
+        "version":"0.1.0","name":"bad","instructions":[{
+            "name":"call","accounts":[
+                {"name":"rest","rest":true},
+                {"name":"tail"}
+            ],"args":[]
+        }]
+    }"#;
+    let err = generate_from_idl_json(middle).unwrap_err();
+    assert!(err.contains("rest account must be the final account"));
+
+    let multiple = r#"{
+        "version":"0.1.0","name":"bad","instructions":[{
+            "name":"call","accounts":[
+                {"name":"first","rest":true},
+                {"name":"second","rest":true}
+            ],"args":[]
+        }]
+    }"#;
+    let err = generate_from_idl_json(multiple).unwrap_err();
+    assert!(err.contains("more than one rest account"));
 }
 
 #[test]
@@ -721,9 +824,9 @@ fn test_fetch_helpers() {
         "fetch helper should use BorshDeserialize"
     );
 
-    // Fetch helper gets account from sequencer
+    // Fetch helper gets the public account through WalletCore.
     assert!(
-        code.contains("get_account(account_id)"),
+        code.contains("get_account_public(account_id)"),
         "fetch helper should fetch account data"
     );
 
@@ -1223,15 +1326,19 @@ fn test_ffi_fetch_account_seeded_pda_uses_parse_account_id() {
 }
 
 #[test]
-fn test_ffi_fetch_sets_sequencer_url() {
+fn test_ffi_fetch_applies_sequencer_url_override() {
     let output = generate_from_idl_json(WHISPER_WALL_IDL).expect("codegen should succeed");
     let ffi = &output.ffi_code;
 
-    // sequencer_url must be set (not silently ignored)
+    // sequencer_url must be parsed into the v0.2.4 multi-sequencer override.
     assert!(
-        ffi.contains("LEE_SEQUENCER_URL"),
-        "fetch function must set LEE_SEQUENCER_URL env var: {ffi}"
+        ffi.contains("SequencerConnectionData { sequencer_addr, basic_auth: None }"),
+        "fetch function must apply its sequencer URL: {ffi}"
     );
+    assert!(ffi.contains("sequencers: Some(vec!["));
+    assert!(ffi.contains("fetch_statistics_path"));
+    assert!(ffi.contains("WalletCore::new_update_chain"));
+    assert!(!ffi.contains("LEE_SEQUENCER_URL"));
 }
 
 #[test]
@@ -1352,10 +1459,10 @@ fn test_ffi_fetch_borsh_decode_in_function() {
         "fetch function must decode via <WallStateState as borsh::BorshDeserialize>::try_from_slice: {ffi}"
     );
 
-    // Must call get_account
+    // Must call the supported WalletCore public-account API.
     assert!(
-        ffi.contains("get_account(pda)"),
-        "fetch function must call get_account(pda): {ffi}"
+        ffi.contains("get_account_public(pda)"),
+        "fetch function must call get_account_public(pda): {ffi}"
     );
 
     // Must return success JSON with state

@@ -433,7 +433,7 @@ Item {
                         width: parent.width
                         Text { text: "Proof"; color: appRoot ? appRoot.theme.fg3 : "#94A3B8"; font.pixelSize: 11; font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"; Layout.fillWidth: true }
                         Text { text: appRoot && appRoot.proofRunning ? appRoot.formatElapsed(appRoot.proofElapsedSeconds)
-                                    : appRoot && (appRoot.sampleStatus === "Proof verified" || appRoot.sampleStatus === "Tokens delivered" || appRoot.lastProofPath !== "") ? "ready"
+                                    : appRoot && (appRoot.sampleStatus === "Proof verified" || appRoot.claimCompleted() || appRoot.lastProofPath !== "") ? "ready"
                                     : "pending"
                                color: appRoot ? appRoot.theme.fg : "#0F172A"; font.pixelSize: 12; font.family: appRoot ? appRoot.theme.fontMono : "monospace" }
                     }

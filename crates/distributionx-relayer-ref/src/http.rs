@@ -9,9 +9,18 @@ async fn handle_submit(
     Json(req): Json<RelayerSubmitRequest>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     match crate::submit::submit_claim(req).await {
-        Ok(RelayerSubmitResponse { tx_id }) => (
+        Ok(RelayerSubmitResponse {
+            tx_id,
+            token_tx_id,
+            token_block_id,
+        }) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "status": "RELAYER_SUBMIT_OK", "tx_id": tx_id })),
+            Json(serde_json::json!({
+                "status": "RELAYER_SUBMIT_OK",
+                "tx_id": tx_id,
+                "token_tx_id": token_tx_id,
+                "token_block_id": token_block_id,
+            })),
         ),
         Err(err) => (
             StatusCode::BAD_REQUEST,

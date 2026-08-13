@@ -278,7 +278,7 @@ mod tests {
     /// Verifies spel CLI's serialization is compatible with the guest-side
     /// Deserializer from risc0_zkvm (used by lee_core::program::read_lee_inputs).
     /// This is the contract between the CLI (transaction sender) and the
-    /// on-chain program (transaction executor) at LEZ v0.2.0-rc5.
+    /// on-chain program (transaction executor) at LEZ v0.2.4.
     #[test]
     fn serialize_deserialize_roundtrip_with_bytes32() {
         #[derive(Deserialize, Debug, PartialEq)]

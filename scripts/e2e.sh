@@ -12,14 +12,15 @@ Modes:
   localnet      Run the full shielded CLI E2E against an already-running local LEZ RPC.
   private-localnet
                 Backward-compatible alias for localnet.
-  ci-localnet   Start a configured standalone sequencer, then run localnet E2E.
+  ci-localnet   Build/start pinned LEZ v0.2.4 standalone, then run localnet E2E.
   testnet       Run the full CLI E2E against the configured LEZ RPC and submit adapters.
   basecamp      Package/install LGX assets and launch Basecamp with .env.local.
   package       Build the two Basecamp LGX assets under target/lgx/.
 
 The localnet/testnet CLI E2E deploys, initializes, funds, proves with
-RISC0_DEV_MODE=0, verifies, claims, rejects a double claim, closes on-chain,
-and writes logs under docs/run-logs/e2e/.
+RISC0_DEV_MODE=0, verifies, claims, and rejects a double claim. Localnet closes
+on-chain; testnet leaves the distribution open unless
+DISTRIBUTIONX_CLOSE_AFTER_E2E=1. Logs are written under docs/run-logs/e2e/.
 
 Localnet runs use fixtures/reviewer-fast-path by default. Set
 DISTRIBUTIONX_USE_REVIEWER_FIXTURE=0 to generate fresh sample keys.
@@ -32,6 +33,19 @@ if [[ -z "${mode}" || "${mode}" == "-h" || "${mode}" == "--help" ]]; then
   exit 0
 fi
 shift
+
+case "${mode}" in
+  localnet|private-localnet|ci-localnet|testnet)
+    bash "${ROOT}/scripts/docker-preflight.sh"
+    DISTRIBUTIONX_REAL_DOCKER="$(type -P docker)"
+    if [[ -z "${DISTRIBUTIONX_REAL_DOCKER}" || "${DISTRIBUTIONX_REAL_DOCKER}" != /* ]]; then
+      echo "E_DISTRIBUTIONX_REAL_DOCKER_INVALID" >&2
+      exit 2
+    fi
+    export DISTRIBUTIONX_REAL_DOCKER
+    export PATH="${ROOT}/scripts/risc0-docker-bin:${PATH}"
+    ;;
+esac
 
 load_env_file() {
   local env_file="${DISTRIBUTIONX_ENV_FILE:-${ROOT}/.env.local}"
@@ -75,123 +89,48 @@ write_ci_summary() {
   fi
 }
 
-skip_or_fail_ci_localnet() {
-  local message="$1"
-  if [[ "${DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP:-0}" == "1" ]]; then
-    echo "DISTRIBUTIONX_LOCALNET_E2E_SKIPPED: ${message}"
-    write_ci_summary "Skipped" "${message}"
-    exit 0
-  fi
-  echo "E_DISTRIBUTIONX_LOCALNET_E2E_NOT_READY: ${message}" >&2
-  echo "Set DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP=1 only when CI should report this job as skipped." >&2
-  exit 2
-}
-
-resolve_executable() {
-  local candidate="$1"
-  if [[ "${candidate}" == */* ]]; then
-    [[ -x "${candidate}" ]] && printf '%s\n' "${candidate}"
-  else
-    command -v "${candidate}" 2>/dev/null || true
-  fi
-}
-
-find_sequencer() {
-  if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_BIN:-}" ]]; then
-    resolve_executable "${DISTRIBUTIONX_LEZ_SEQUENCER_BIN}" || true
-    return
-  fi
-
-  local candidate
-  for candidate in lez-sequencer lez_sequencer logos-lez-sequencer logos_lez_sequencer lez-node lez; do
-    if resolve_executable "${candidate}" >/dev/null; then
-      resolve_executable "${candidate}"
-      return
-    fi
-  done
-}
-
 CI_LOCALNET=0
-SEQUENCER_PID=""
+CI_OWNS_SEQUENCER=0
 
 cleanup_ci_localnet() {
-  if [[ -n "${SEQUENCER_PID}" ]] && kill -0 "${SEQUENCER_PID}" 2>/dev/null; then
-    kill "${SEQUENCER_PID}" 2>/dev/null || true
-    wait "${SEQUENCER_PID}" 2>/dev/null || true
+  local status=$?
+  if [[ "${CI_OWNS_SEQUENCER}" == "1" ]]; then
+    if ! bash "${ROOT}/scripts/standalone-sequencer.sh" stop; then
+      status=1
+    fi
+    local sequencer_log="/tmp/distributionx-standalone-sequencer-${UID:-$(id -u)}.log"
+    if [[ -n "${LOG_DIR:-}" && -f "${sequencer_log}" ]]; then
+      mkdir -p "${LOG_DIR}"
+      cp -- "${sequencer_log}" "${LOG_DIR}/sequencer.log"
+    fi
   fi
-  if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_STOP_COMMAND:-}" ]]; then
-    bash -c "${DISTRIBUTIONX_LEZ_SEQUENCER_STOP_COMMAND}" >/dev/null 2>&1 || true
-  fi
+  trap - EXIT
+  exit "${status}"
 }
 
 setup_ci_localnet() {
-  load_env_file
-
-  local sequencer_bin=""
-  if [[ -z "${DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND:-}" ]]; then
-    sequencer_bin="$(find_sequencer)"
-    if [[ -z "${sequencer_bin}" ]]; then
-      skip_or_fail_ci_localnet "no standalone LEZ sequencer binary found; set DISTRIBUTIONX_LEZ_SEQUENCER_BIN or DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND"
-    fi
-  fi
-
-  export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-${LEZ_RPC_URL:-http://127.0.0.1:3040}}"
+  # Canonical CI is secret-free and does not inherit a developer's possibly
+  # stale rc5 .env.local. Every runtime path is version-scoped below.
+  export DISTRIBUTIONX_ENV_FILE=/dev/null
+  export DISTRIBUTIONX_LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/v0.2.4}"
+  export LEZ_WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-v0.2.4-build/release/wallet}"
+  export LEE_WALLET_HOME_DIR="${ROOT}/target/lez-v0.2.4-wallet"
+  export LEZ_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-http://127.0.0.1:3040}"
   if ! is_local_rpc "${LEZ_RPC_URL}"; then
-    skip_or_fail_ci_localnet "LEZ_RPC_URL must point at a local sequencer for this job, got ${LEZ_RPC_URL}"
+    echo "E_DISTRIBUTIONX_LOCALNET_RPC_REQUIRED: ${LEZ_RPC_URL}" >&2
+    exit 2
   fi
   default_local_submit_hooks
-
-  [[ -n "${DISTRIBUTIONX_INIT_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_INIT_SUBMIT_COMMAND is required — all transactions must touch the chain"
-  [[ -n "${DISTRIBUTIONX_FUND_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_FUND_SUBMIT_COMMAND is required — all transactions must touch the chain"
-  [[ -n "${DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND is required — all transactions must touch the chain"
-  [[ -n "${DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND:-}" ]] || skip_or_fail_ci_localnet "DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND is required — close must touch the chain"
-
-  [[ -n "${LEZ_DEPLOYER_WALLET:-}" ]] || skip_or_fail_ci_localnet "LEZ_DEPLOYER_WALLET must be a funded local wallet account"
 
   export DISTRIBUTIONX_RELAYER_URL="${DISTRIBUTIONX_RELAYER_URL:-localnet}"
   export DISTRIBUTIONX_STATE_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-localnet}"
   export DISTRIBUTIONX_SERIALIZED_LEZ_TX="${DISTRIBUTIONX_SERIALIZED_LEZ_TX:-${DISTRIBUTIONX_STATE_DIR}/claim.tx}"
-  export DISTRIBUTIONX_ENV_FILE=/dev/null
   export RISC0_DEV_MODE=0
-
-  local log_dir="${ROOT}/docs/run-logs/ci-e2e"
-  mkdir -p "${log_dir}"
-  local sequencer_log="${log_dir}/sequencer.log"
-  if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND:-}" ]]; then
-    bash -c "${DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND}" > "${sequencer_log}" 2>&1 &
-  else
-    "${sequencer_bin}" ${DISTRIBUTIONX_LEZ_SEQUENCER_ARGS:-} > "${sequencer_log}" 2>&1 &
-  fi
-  SEQUENCER_PID="$!"
+  CI_OWNS_SEQUENCER=1
   trap cleanup_ci_localnet EXIT
-
-  echo "Started LEZ sequencer pid=${SEQUENCER_PID} rpc=${LEZ_RPC_URL} log=${sequencer_log}"
-
-  local ready=0
-  for _ in $(seq 1 "${DISTRIBUTIONX_LOCALNET_READY_ATTEMPTS:-60}"); do
-    local http_code
-    http_code="$(curl --max-time 2 -sS -o /dev/null -w '%{http_code}' "${LEZ_RPC_URL}" 2>/dev/null || true)"
-    if [[ -n "${http_code}" && "${http_code}" != "000" ]]; then
-      ready=1
-      break
-    fi
-    if ! kill -0 "${SEQUENCER_PID}" 2>/dev/null; then
-      if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND:-}" ]]; then
-        sleep 1
-        continue
-      fi
-      cat "${sequencer_log}" >&2 || true
-      echo "E_LEZ_SEQUENCER_EXITED_BEFORE_READY" >&2
-      exit 1
-    fi
-    sleep 1
-  done
-
-  if [[ "${ready}" != "1" ]]; then
-    cat "${sequencer_log}" >&2 || true
-    echo "E_LEZ_SEQUENCER_NOT_READY: ${LEZ_RPC_URL}" >&2
-    exit 1
-  fi
+  bash "${ROOT}/scripts/standalone-sequencer.sh" restart --clean
+  bash "${ROOT}/scripts/lez-fingerprint.sh" --rpc "${LEZ_RPC_URL}" \
+    --expected-channel "$(printf '01%.0s' {1..32})" >/dev/null
 }
 
 case "${mode}" in
@@ -206,10 +145,10 @@ case "${mode}" in
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_REQUIRED: ${LEZ_RPC_URL}" >&2
       exit 2
     fi
-    http_code="$(curl --max-time 2 -sS -o /dev/null -w '%{http_code}' "${LEZ_RPC_URL}" 2>/dev/null || true)"
-    if [[ -z "${http_code}" || "${http_code}" == "000" ]]; then
+    if ! bash "${ROOT}/scripts/lez-fingerprint.sh" --rpc "${LEZ_RPC_URL}" \
+      --expected-channel "$(printf '01%.0s' {1..32})" >/dev/null; then
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_NOT_READY: ${LEZ_RPC_URL}" >&2
-      echo "Start the LEZ sequencer first, or use mode ci-localnet with DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND." >&2
+      echo "Start the pinned sequencer first, or use mode ci-localnet." >&2
       exit 2
     fi
     ;;
@@ -225,8 +164,8 @@ case "${mode}" in
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_REQUIRED: ${LEZ_RPC_URL}" >&2
       exit 2
     fi
-    http_code="$(curl --max-time 2 -sS -o /dev/null -w '%{http_code}' "${LEZ_RPC_URL}" 2>/dev/null || true)"
-    if [[ -z "${http_code}" || "${http_code}" == "000" ]]; then
+    if ! bash "${ROOT}/scripts/lez-fingerprint.sh" --rpc "${LEZ_RPC_URL}" \
+      --expected-channel "$(printf '01%.0s' {1..32})" >/dev/null; then
       echo "E_DISTRIBUTIONX_LOCALNET_RPC_NOT_READY: ${LEZ_RPC_URL}" >&2
       echo "Start the LEZ sequencer first." >&2
       exit 2
@@ -273,41 +212,47 @@ elif [[ -n "${DISTRIBUTIONX_ENV_FILE:-}" ]]; then
   exit 2
 fi
 
-LOG_DIR="${ROOT}/docs/run-logs/e2e"
 STATE_DIR="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-testnet}"
-mkdir -p "${LOG_DIR}"
-rm -f "${LOG_DIR}"/*.log "${LOG_DIR}"/*.json
+if [[ "${mode}" == "testnet" ]]; then
+  umask 077
+  LOG_DIR="${DISTRIBUTIONX_LIVE_LOG_DIR:-${STATE_DIR}/logs}"
+else
+  LOG_DIR="${DISTRIBUTIONX_LOCAL_LOG_DIR:-${ROOT}/docs/run-logs/e2e}"
+fi
+resolved_target="$(realpath -m "${ROOT}/target")"
+resolved_state="$(realpath -m "${STATE_DIR}")"
+[[ "${resolved_state}" == "${resolved_target}/"* && "${resolved_state}" != "${resolved_target}" ]] || {
+  echo "E_DISTRIBUTIONX_STATE_DIR_UNSAFE_TO_RESET: ${resolved_state}" >&2
+  exit 2
+}
 rm -rf "${STATE_DIR}"
+mkdir -p "${LOG_DIR}" "${STATE_DIR}"
+if [[ "${mode}" == "testnet" ]]; then
+  chmod 700 "${STATE_DIR}" "${LOG_DIR}"
+else
+  rm -f "${LOG_DIR}"/*.log "${LOG_DIR}"/*.json
+fi
 export DISTRIBUTIONX_STATE_DIR="${STATE_DIR}"
 export DISTRIBUTIONX_REPO_ROOT="${ROOT}"
 export DISTRIBUTIONX_AIRDROP_NAME="${DISTRIBUTIONX_AIRDROP_NAME:-demo-airdrop}"
 export DISTRIBUTIONX_FUND_AMOUNT="${DISTRIBUTIONX_FUND_AMOUNT:-3000}"
 export DISTRIBUTIONX_EXPIRY_UNIX="${DISTRIBUTIONX_EXPIRY_UNIX:-1893456000}"
 
-default_wallet_home() {
-  if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
-    printf '%s\n' "${ROOT}/.scaffold/wallet"
-  else
-    printf '%s\n' "${HOME}/.lee/wallet"
-  fi
-}
-
 if [[ "${mode}" == "localnet" ]]; then
-  export LEE_WALLET_HOME_DIR="${LEE_WALLET_HOME_DIR:-${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}}"
+  export LEE_WALLET_HOME_DIR="${LEE_WALLET_HOME_DIR:-${ROOT}/target/lez-v0.2.4-wallet}"
   export DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE="${DISTRIBUTIONX_BOOTSTRAP_EVIDENCE_MODE:-1}"
-  LEZ_DEPLOYER_WALLET="$(bash "${ROOT}/scripts/wallet-bootstrap.sh")"
+  BOOTSTRAP_ARGS=()
+  if [[ "${CI_LOCALNET}" == "1" ]]; then
+    BOOTSTRAP_ARGS+=(--clean)
+  fi
+  LEZ_DEPLOYER_WALLET="$(bash "${ROOT}/scripts/wallet-bootstrap.sh" "${BOOTSTRAP_ARGS[@]}")"
   export LEZ_DEPLOYER_WALLET
   if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
-    LOCAL_WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
-    RECOVERY_CANDIDATE=""
-    if [[ -x "${LOCAL_WALLET_BIN}" ]]; then
-      RECOVERY_CANDIDATE="$("${LOCAL_WALLET_BIN}" account ls 2>/dev/null \
-        | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^Public\//) print $i }' \
-        | grep -vFx -- "${LEZ_DEPLOYER_WALLET}" \
-        | head -n 1 || true)"
-    fi
+    BOOTSTRAP_RECEIPT="${DISTRIBUTIONX_WALLET_BOOTSTRAP_RECEIPT:-${ROOT}/target/lez-v0.2.4-wallet-bootstrap.json}"
+    RECOVERY_CANDIDATE="$(jq -er '.recovery | strings | select(length > 0)' \
+      "${BOOTSTRAP_RECEIPT}" 2>/dev/null || true)"
     if [[ -z "${RECOVERY_CANDIDATE}" ]]; then
-      echo "E_DISTRIBUTIONX_LOCALNET_RECOVERY_ACCOUNT_MISSING: need an initialized public account distinct from ${LEZ_DEPLOYER_WALLET}" >&2
+      echo "E_DISTRIBUTIONX_LOCALNET_RECOVERY_ACCOUNT_MISSING: ${BOOTSTRAP_RECEIPT} has no validated recovery account" >&2
       exit 2
     fi
     export DISTRIBUTIONX_RECOVERY_ADDRESS="${RECOVERY_CANDIDATE}"
@@ -362,11 +307,11 @@ fi
 if [[ -z "${DISTRIBUTIONX_CLI:-}" ]]; then
   case "${DISTRIBUTIONX_CARGO_PROFILE:-release}" in
     release)
-      cargo build -p distributionx-cli --release
+      cargo +1.94.0 build -p distributionx-cli --release
       export DISTRIBUTIONX_CLI="${ROOT}/target/release/distributionx-cli"
       ;;
     debug)
-      cargo build -p distributionx-cli
+      cargo +1.94.0 build -p distributionx-cli
       export DISTRIBUTIONX_CLI="${ROOT}/target/debug/distributionx-cli"
       ;;
     *)
@@ -386,7 +331,7 @@ cli() {
   "${DISTRIBUTIONX_CLI}" "$@"
 }
 
-run_step() {
+distributionx_run_step() {
   local name="$1"
   shift
   local log="${LOG_DIR}/${name}.log"
@@ -394,16 +339,13 @@ run_step() {
   cat "${log}"
 }
 
-run_step_with_notice() {
+distributionx_run_step_with_notice() {
   local name="$1"
   local notice="$2"
   shift 2
   local log="${LOG_DIR}/${name}.log"
-  {
-    echo "${notice}"
-    "$@"
-  } >"${log}" 2>&1
-  cat "${log}"
+  printf '%s\n' "${notice}" | tee "${log}"
+  "$@" 2>&1 | tee -a "${log}"
 }
 
 assert_marker() {
@@ -421,6 +363,13 @@ json_string_field() {
   sed -n "s/.*\"${field}\":\"\\([^\"]*\\)\".*/\\1/p" | tail -n 1
 }
 
+flag_enabled() {
+  local value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  [[ "${value,,}" =~ ^(1|true|yes|on)$ ]]
+}
+
 claim_destination_args() {
   printf '%s\n' --destination-packet "${STATE_DIR}/shielded_destination.json"
 }
@@ -428,6 +377,15 @@ claim_destination_args() {
 echo "DistributionX E2E"
 echo "RISC0_DEV_MODE=${RISC0_DEV_MODE}"
 echo "DISTRIBUTIONX_CLI=${DISTRIBUTIONX_CLI}"
+SOURCE_COMMIT="$(git -C "${ROOT}" rev-parse HEAD 2>/dev/null || printf unknown)"
+if git -C "${ROOT}" diff --quiet --ignore-submodules HEAD -- 2>/dev/null \
+  && [[ -z "$(git -C "${ROOT}" ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+  SOURCE_DIRTY=0
+else
+  SOURCE_DIRTY=1
+fi
+echo "DISTRIBUTIONX_SOURCE_COMMIT=${SOURCE_COMMIT}"
+echo "DISTRIBUTIONX_SOURCE_DIRTY=${SOURCE_DIRTY}"
 
 USE_REVIEWER_FIXTURE="${DISTRIBUTIONX_USE_REVIEWER_FIXTURE:-}"
 if [[ -z "${USE_REVIEWER_FIXTURE}" ]]; then
@@ -438,14 +396,52 @@ if [[ -z "${USE_REVIEWER_FIXTURE}" ]]; then
   fi
 fi
 
-if [[ "${USE_REVIEWER_FIXTURE}" == "1" ]]; then
-  run_step sample env DISTRIBUTIONX_STATE_DIR="${STATE_DIR}" "${ROOT}/scripts/install-reviewer-fixture.sh"
+if [[ "${mode}" == "testnet" && "${USE_REVIEWER_FIXTURE}" == "1" ]]; then
+  echo "E_DISTRIBUTIONX_PUBLIC_FIXTURE_FORBIDDEN: deterministic reviewer fixtures are localnet-only" >&2
+  exit 2
+elif [[ "${mode}" == "testnet" ]]; then
+  if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
+    echo "E_DISTRIBUTIONX_TESTNET_RECOVERY_REQUIRED: use a fresh initialized LEZ testnet recovery account" >&2
+    exit 2
+  fi
+  WALLET_OUTPUT="$(cli create-wallet --out-dir "${STATE_DIR}")"
+  CLAIMANT_ACCOUNT="$(jq -er '.account' <<<"${WALLET_OUTPUT}")"
+  CLAIMANT_HEX="${CLAIMANT_ACCOUNT#Public/}"
+  [[ "${CLAIMANT_HEX}" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "E_DISTRIBUTIONX_TESTNET_CLAIMANT_INVALID" >&2
+    exit 1
+  }
+  cli create-destination --out-dir "${STATE_DIR}" >/dev/null
+  printf 'address,raw_amount\n%s,%s\n' \
+    "${CLAIMANT_HEX}" "${DISTRIBUTIONX_FUND_AMOUNT}" > "${STATE_DIR}/eligible.csv"
+  chmod 600 "${STATE_DIR}/eligible.csv" "${STATE_DIR}/wallet.seed" \
+    "${STATE_DIR}/shielded_destination.json" \
+    "${STATE_DIR}/shielded_destination_keys.json"
+  jq -n \
+    --arg status "SAMPLE_FIXTURE_OK" \
+    --arg csv "${STATE_DIR}/eligible.csv" \
+    --arg wallet "${STATE_DIR}/wallet.seed" \
+    --arg account "${CLAIMANT_ACCOUNT}" \
+    --arg destination "${STATE_DIR}/shielded_destination.json" \
+    '{status:$status,csv:$csv,wallet:$wallet,claimant_account:$account,shielded_destination:$destination,random_source:"OsRng"}' \
+    > "${LOG_DIR}/sample.log"
+  cat "${LOG_DIR}/sample.log"
+elif [[ "${USE_REVIEWER_FIXTURE}" == "1" ]]; then
+  distributionx_run_step sample env DISTRIBUTIONX_STATE_DIR="${STATE_DIR}" "${ROOT}/scripts/install-reviewer-fixture.sh"
 else
-  run_step sample cli sample-fixture --out-dir "${STATE_DIR}"
+  distributionx_run_step sample cli sample-fixture --out-dir "${STATE_DIR}"
 fi
 assert_marker sample "SAMPLE_FIXTURE_OK"
 
-if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ]]; then
+USE_CUSTOM_TOKEN_SETTLEMENT="${DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT:-0}"
+if ! flag_enabled "${USE_CUSTOM_TOKEN_SETTLEMENT}"; then
+  if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" ]]; then
+    TOKEN_OUTPUT="$(cli token-id --name "${DISTRIBUTIONX_AIRDROP_NAME}-compatibility-token")"
+    DISTRIBUTIONX_TOKEN_ID="$(printf '%s\n' "${TOKEN_OUTPUT}" | json_string_field token_id)"
+    export DISTRIBUTIONX_TOKEN_ID
+  fi
+  unset DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT
+elif [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ]]; then
   MINT_OUTPUT="$(cli mint-token --name "${DISTRIBUTIONX_AIRDROP_NAME}-token" --total-supply "${DISTRIBUTIONX_FUND_AMOUNT}")"
   printf '%s\n' "${MINT_OUTPUT}" > "${LOG_DIR}/mint-token.log"
   DISTRIBUTIONX_TOKEN_ID="$(printf '%s\n' "${MINT_OUTPUT}" | json_string_field token_id)"
@@ -459,33 +455,49 @@ if [[ -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
   export DISTRIBUTIONX_RECOVERY_ADDRESS
 fi
 
-if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" || -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" || -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" ]]; then
+TOKEN_SOURCE_REQUIRED=0
+if flag_enabled "${USE_CUSTOM_TOKEN_SETTLEMENT}"; then
+  TOKEN_SOURCE_REQUIRED=1
+fi
+if [[ -z "${DISTRIBUTIONX_TOKEN_ID:-}" \
+  || -z "${DISTRIBUTIONX_RECOVERY_ADDRESS:-}" \
+  || ( "${TOKEN_SOURCE_REQUIRED}" == "1" && -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ) ]]; then
   echo "E_DISTRIBUTIONX_SAMPLE_DERIVATION_FAILED" >&2
   exit 2
 fi
 
-run_step deploy scripts/deploy.sh "--${mode}"
+distributionx_run_step deploy scripts/deploy.sh "--${mode}"
 assert_marker deploy "DEPLOY_${mode^^}_OK"
 
-run_step init cli init \
+TOKEN_SOURCE_ARGS=()
+if [[ -n "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" ]]; then
+  TOKEN_SOURCE_ARGS+=(--token-source-account "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT}")
+fi
+
+distributionx_run_step init cli init \
   --csv "${STATE_DIR}/eligible.csv" \
   --distributor "${LEZ_DEPLOYER_WALLET}" \
   --token "${DISTRIBUTIONX_TOKEN_ID}" \
-  --token-source-account "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT}" \
+  "${TOKEN_SOURCE_ARGS[@]}" \
   --rpc "${LEZ_RPC_URL}" \
   --expiry "${DISTRIBUTIONX_EXPIRY_UNIX}" \
   --recovery "${DISTRIBUTIONX_RECOVERY_ADDRESS}"
 assert_marker init "INIT_OK"
 
-run_step fund cli fund --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" --amount "${DISTRIBUTIONX_FUND_AMOUNT}"
+distributionx_run_step fund cli fund --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" --amount "${DISTRIBUTIONX_FUND_AMOUNT}"
 assert_marker fund "FUND_OK"
 
 mapfile -t CLAIM_DESTINATION_ARGS < <(claim_destination_args)
-run_step_with_notice prove "RISC0_DEV_MODE=${RISC0_DEV_MODE}" cli prove \
+RISC0_WORK_DIR="${STATE_DIR}/risc0-groth16-work"
+mkdir -p "${RISC0_WORK_DIR}"
+chmod 700 "${RISC0_WORK_DIR}"
+export RISC0_WORK_DIR
+distributionx_run_step_with_notice prove "RISC0_DEV_MODE=${RISC0_DEV_MODE} PROOF_GENERATION_START command=distributionx-cli prove" cli prove \
   --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" \
   --bundle "${STATE_DIR}/bundle.json" \
   --wallet "${STATE_DIR}/wallet.seed" \
   "${CLAIM_DESTINATION_ARGS[@]}"
+unset RISC0_WORK_DIR
 assert_marker prove "RISC0_DEV_MODE=0"
 assert_marker prove "PROVE_LOCAL_OK"
 assert_marker prove "claim_destination_commitment"
@@ -518,13 +530,13 @@ if grep -q "claim_address" "${STATE_DIR}/proof.json"; then
   exit 1
 fi
 
-run_step verify-before-claim cli verify \
+distributionx_run_step verify-before-claim cli verify \
   --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" \
   --proof "${STATE_DIR}/proof.json"
 assert_marker verify-before-claim "VERIFY_OK"
 assert_marker verify-before-claim '"risc0_receipt_verify":"verified"'
 
-run_step claim cli claim \
+distributionx_run_step claim cli claim \
   --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" \
   --proof "${STATE_DIR}/proof.json" \
   --relayer "${DISTRIBUTIONX_RELAYER_URL}" \
@@ -541,9 +553,22 @@ if cli claim --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" --proof "${STATE_DIR}/pro
 fi
 cat "${LOG_DIR}/double-claim.log"
 assert_marker double-claim "E_ALREADY_CLAIMED"
+echo "DISTRIBUTIONX_DUPLICATE_REJECTED_LOCALLY state.nullifiers"
 
-run_step close cli close --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}"
-assert_marker close "CLOSE_OK"
+CLOSE_AFTER_E2E="${DISTRIBUTIONX_CLOSE_AFTER_E2E:-}"
+if [[ -z "${CLOSE_AFTER_E2E}" ]]; then
+  if [[ "${mode}" == "testnet" ]]; then
+    CLOSE_AFTER_E2E=0
+  else
+    CLOSE_AFTER_E2E=1
+  fi
+fi
+if flag_enabled "${CLOSE_AFTER_E2E}"; then
+  distributionx_run_step close cli close --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}"
+  assert_marker close "CLOSE_OK"
+else
+  echo "DISTRIBUTIONX_CLOSE_SKIPPED mode=${mode}"
+fi
 
 echo "DISTRIBUTIONX_E2E_PASS logs=${LOG_DIR}"
 if [[ "${CI_LOCALNET}" == "1" ]]; then

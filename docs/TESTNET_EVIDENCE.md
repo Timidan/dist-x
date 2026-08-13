@@ -1,6 +1,8 @@
-# LP-0003 rc5 PPE testnet evidence
+# Historical LP-0003 rc5 PPE testnet evidence
 
-Recorded on the live LEZ testnet RPC: `https://testnet.lez.logos.co`.
+Recorded on the LEZ testnet RPC at the time: `https://testnet.lez.logos.co`.
+
+> This is an archived rc5 snapshot, not current-network evidence. The testnet was reset after capture and sampled transaction IDs now return `result: null`. DistributionX is being refreshed against pinned LEZ v0.2.4; do not use the tables below as proof of current availability.
 
 ## Summary
 
@@ -13,7 +15,7 @@ Recorded on the live LEZ testnet RPC: `https://testnet.lez.logos.co`.
 - Witness-private `claim_ppe` claims: 20
 - Token settlement txs: 20
 
-All setup txs and all 40 claim/token txs below were checked with `getTransaction`.
+All setup txs and all 40 claim/token txs below were checked with `getTransaction` at capture time.
 
 ## Evidence files
 
@@ -24,7 +26,7 @@ The witness-free verification artifacts are committed under [`docs/testnet-evide
 - Per-claim summaries: `docs/testnet-evidence/{b1,c1}/claims.jsonl`
 - Raw claim / prepare / destination logs: `docs/testnet-evidence/{b1,c1}/logs/*.log`
 
-These artifacts carry no witness data — the eligible address, row salt, claim signature, and Merkle path never appear in them (that is the point of the `claim_ppe` PPE path). Every transaction is also independently verifiable on-chain by running `getTransaction` against `https://testnet.lez.logos.co` with the tx ids in the tables below.
+These artifacts carry no witness data: the eligible address, row salt, claim signature, and Merkle path do not appear in them. The transaction responses are preserved as capture-time evidence; the current RPC no longer resolves the old IDs.
 
 The per-distribution working state (`target/distributionx-testnet-rc5-evidence{,-c1}/`) — wallet seeds, claimant keystores, and encrypted bundles — is intentionally **not** committed because it holds private keys. It is regenerated locally by the evidence run and is not needed to verify the on-chain result.
 
@@ -70,7 +72,7 @@ Relevant source references:
 | `lp0003-rc5-c1` | 09 | `1a6ffc648fd32d43e5111f5350b77e1e7b6693b3a5289de5f6ba888cabf88bfc` | `1f8818a36f5e3dfc5a4de2662a8620d5fb0940adf1afd04f5f84ecd343ae0c19` | 504401 |
 | `lp0003-rc5-c1` | 10 | `c2a71a2d4c22da97fef895005dc4f2a774da5b82e9985c6413cdccdfab6dc0bf` | `33e0bb36317b1240f89877849a48933ecd5c8e42a551d38e5f5f5da82b40b5fa` | 504401 |
 
-## Verification counts
+## Capture-time verification counts
 
 - Setup txs: 6/6 found by `getTransaction`
 - `lp0003-rc5-b1` claim/token txs: 20/20 found by `getTransaction`

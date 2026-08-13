@@ -36,8 +36,10 @@ Item {
     }
 
     function hasSufficientDistributorBalance() {
+        if (!appRoot) return false
         var amount = Number(appRoot.fundAmount)
-        if (!appRoot || isNaN(amount) || amount <= 0) return false
+        if (isNaN(amount) || amount <= 0) return false
+        if (!appRoot.customTokenSettlementConfigured()) return true
         if (appRoot.distributorTokenBalance === "" || appRoot.distributorTokenBalanceError !== "") return false
         var balance = Number(appRoot.distributorTokenBalance)
         return !isNaN(balance) && !isNaN(amount) && amount > 0 && balance >= amount
@@ -45,7 +47,7 @@ Item {
 
     function distributorBalanceText() {
         if (!appRoot) return "Token source balance: loading..."
-        if (appRoot.activeTokenSourceAccount() === "") return "Token source balance: mint a token first"
+        if (!appRoot.customTokenSettlementConfigured()) return "Native distribution pool funding"
         if (appRoot.distributorTokenBalanceError !== "") return "Token source balance: Error: " + appRoot.distributorTokenBalanceError
         if (appRoot.distributorTokenBalance === "") return "Token source balance: loading..."
         if (appRoot.fundAmount !== "" && !hasSufficientDistributorBalance()) {
@@ -62,7 +64,6 @@ Item {
         if (appRoot.airdropName === "") return "Distribution name is required before Initialize."
         if (appRoot.distributorAccount === "") return "Signer account is required before Initialize."
         if (appRoot.tokenId === "") return "Token id is required before Initialize."
-        if (appRoot.tokenSourceAccount === "") return "Token source account is required before Initialize."
         if (appRoot.testnetRpc === "") return "RPC URL is required before Initialize."
         if (appRoot.recoveryAddress === "") return "Recovery account is required before Initialize."
         return ""
@@ -360,8 +361,8 @@ Item {
                 Field {
                     theme: page.appRoot ? page.appRoot.theme : null
                     width: parent.width
-                    label: "Token source account"
-                    placeholder: "Public/..."
+                    label: "Custom-token source account (optional)"
+                    placeholder: "Leave blank for native-token payout only"
                     text: appRoot ? appRoot.tokenSourceAccount : ""
                     onTextChanged: if (appRoot) appRoot.tokenSourceAccount = text
                 }
@@ -411,7 +412,6 @@ Item {
                             && appRoot.airdropName !== ""
                             && appRoot.distributorAccount !== ""
                             && appRoot.tokenId !== ""
-                            && appRoot.tokenSourceAccount !== ""
                             && appRoot.testnetRpc !== ""
                             && appRoot.recoveryAddress !== ""
                         onClicked: Qt.callLater(function() {
@@ -532,7 +532,7 @@ Item {
                 Text {
                     width: parent.width
                     text: page.distributorBalanceText()
-                    color: appRoot && (appRoot.distributorTokenBalanceError !== "" || appRoot.activeTokenSourceAccount() === "" || (appRoot.distributorTokenBalance !== "" && appRoot.fundAmount !== "" && !page.hasSufficientDistributorBalance())) ? appRoot.theme.danger : (appRoot ? appRoot.theme.fg2 : "#475569")
+                    color: appRoot && appRoot.customTokenSettlementConfigured() && (appRoot.distributorTokenBalanceError !== "" || (appRoot.distributorTokenBalance !== "" && appRoot.fundAmount !== "" && !page.hasSufficientDistributorBalance())) ? appRoot.theme.danger : (appRoot ? appRoot.theme.fg2 : "#475569")
                     font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
                     font.pixelSize: 12
                     wrapMode: Text.WordWrap

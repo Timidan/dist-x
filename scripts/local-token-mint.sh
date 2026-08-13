@@ -25,23 +25,16 @@ if [[ "${CALLER_HAD_STATE_DIR}" == "1" ]]; then
   export DISTRIBUTIONX_STATE_DIR="${CALLER_DISTRIBUTIONX_STATE_DIR}"
 fi
 
-LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/rc5}"
-WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-rc5-build/release/wallet}"
-if [[ ! -x "${WALLET_BIN}" ]]; then
+LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/v0.2.4}"
+bash "${ROOT}/scripts/lez-source-guard.sh" "${LEZ_REPO}" >/dev/null
+WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-v0.2.4-build/release/wallet}"
+if [[ ! -x "${WALLET_BIN}" && "${DISTRIBUTIONX_LOCAL_TOKEN_COMPILE_ONLY:-0}" != "1" ]]; then
   echo "E_DISTRIBUTIONX_LOCAL_WALLET_MISSING: ${WALLET_BIN}" >&2
   exit 2
 fi
 
-default_wallet_home() {
-  if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
-    printf '%s\n' "${ROOT}/.scaffold/wallet"
-  else
-    printf '%s\n' "${HOME}/.lee/wallet"
-  fi
-}
-
-WALLET_HOME="${LEE_WALLET_HOME_DIR:-${NSSA_WALLET_HOME_DIR:-$(default_wallet_home)}}"
-if [[ ! -f "${WALLET_HOME}/storage.json" ]]; then
+WALLET_HOME="${LEE_WALLET_HOME_DIR:-${ROOT}/target/lez-v0.2.4-wallet}"
+if [[ ! -f "${WALLET_HOME}/storage.json" && "${DISTRIBUTIONX_LOCAL_TOKEN_COMPILE_ONLY:-0}" != "1" ]]; then
   echo "E_DISTRIBUTIONX_WALLET_NOT_BOOTSTRAPPED: ${WALLET_HOME}/storage.json missing" >&2
   echo "  run 'bash scripts/wallet-bootstrap.sh' to create a funded distributor account" >&2
   exit 2
@@ -49,11 +42,6 @@ fi
 export LEE_WALLET_HOME_DIR="${WALLET_HOME}"
 
 export CARGO_HOME="${CARGO_HOME:-${ROOT}/target/cargo-home}"
-export RAPIDSNARK_LIB_DIR="${RAPIDSNARK_LIB_DIR:-${ROOT}/target/lez-rc5-build/release/build/rust-rapidsnark-4e8ffacb0415e9be/out/rapidsnark/x86_64}"
-if [[ ! -d "${RAPIDSNARK_LIB_DIR}" ]]; then
-  echo "E_DISTRIBUTIONX_RAPIDSNARK_LIB_DIR_MISSING: ${RAPIDSNARK_LIB_DIR}" >&2
-  exit 2
-fi
 export LOGOS_BLOCKCHAIN_CIRCUITS="${LOGOS_BLOCKCHAIN_CIRCUITS:-${ROOT}/vendor/logos-blockchain-circuits}"
 default_lbc_root_dir() {
   local cached="${HOME}/.cache/logos/blockchain/logos-blockchain-circuits-v0.5.3-linux-x86_64"
@@ -69,12 +57,13 @@ export LBC_ROOT_DIR="${LBC_ROOT_DIR:-$(default_lbc_root_dir)}"
 
 ADAPTER_ROOT="${DISTRIBUTIONX_ADAPTER_CACHE_DIR:-${ROOT}/target/distributionx-adapters}"
 ADAPTER_DIR="${ADAPTER_ROOT}/local-token-mint-${UID:-$(id -u)}"
+export CARGO_TARGET_DIR="${DISTRIBUTIONX_ADAPTER_TARGET_DIR:-${ROOT}/target/lez-v0.2.4-build}"
 mkdir -p "${ADAPTER_DIR}/src" "${ADAPTER_ROOT}/tmp"
 export TMPDIR="${ADAPTER_ROOT}/tmp"
 
 cat > "${ADAPTER_DIR}/Cargo.toml" <<EOF
 [package]
-name = "distributionx-local-token-mint-adapter"
+name = "distributionx-lez-adapter"
 version = "0.1.0"
 edition = "2021"
 
@@ -88,16 +77,14 @@ lee_core = { path = "${LEZ_REPO}/lee/state_machine/core", features = ["host"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sequencer_service_rpc = { path = "${LEZ_REPO}/lez/sequencer/service/rpc", features = ["client"] }
+sha2 = "0.10.9"
 tokio = { version = "1.50.0", features = ["rt-multi-thread", "time"] }
-token_core = { path = "${LEZ_REPO}/programs/token/core" }
+token_core = { path = "${LEZ_REPO}/lez/programs/token/core" }
 url = "2.5.8"
 wallet = { path = "${LEZ_REPO}/lez/wallet" }
 EOF
-if [[ -f "${LEZ_REPO}/Cargo.lock" ]]; then
-  cp "${LEZ_REPO}/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
-else
-  cargo generate-lockfile --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml"
-fi
+cp "${ROOT}/scripts/adapter-lock/Cargo.lock" "${ADAPTER_DIR}/Cargo.lock"
+cargo +1.94.0 fetch -q --locked --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 
 cat > "${ADAPTER_DIR}/src/main.rs" <<'EOF'
 use common::HashType;
@@ -108,11 +95,10 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use token_core::TokenHolding;
-use url::Url;
 use wallet::{
     AccountIdentity,
-    config::WalletConfigOverrides,
-    helperfunctions::{fetch_config_path, fetch_persistent_storage_path},
+    config::{SequencerConnectionData, WalletConfigOverrides},
+    helperfunctions::{fetch_config_path, fetch_persistent_storage_path, fetch_statistics_path},
     program_facades::token::Token,
     WalletCore,
 };
@@ -156,13 +142,15 @@ fn open_wallet(payload: &Value) -> Result<WalletCore, String> {
     // sequencer_addr lives in wallet_config.json, not env — override below.
     std::env::set_var("LEE_WALLET_HOME_DIR", wallet_path);
 
-    let parsed_sequencer: Url = sequencer_url
+    let parsed_sequencer = sequencer_url
         .parse()
         .map_err(|e| format!("sequencer_url '{sequencer_url}': {e}"))?;
     let config_path =
         fetch_config_path().map_err(|e| format!("resolve wallet config path: {e}"))?;
     let storage_path = fetch_persistent_storage_path()
         .map_err(|e| format!("resolve wallet storage path: {e}"))?;
+    let statistics_path =
+        fetch_statistics_path().map_err(|e| format!("resolve wallet statistics path: {e}"))?;
     if !storage_path.exists() {
         return Err(format!(
             "E_DISTRIBUTIONX_WALLET_NOT_BOOTSTRAPPED: {} missing — run scripts/wallet-bootstrap.sh first",
@@ -171,11 +159,20 @@ fn open_wallet(payload: &Value) -> Result<WalletCore, String> {
     }
 
     let overrides = WalletConfigOverrides {
-        sequencer_addr: Some(parsed_sequencer),
+        sequencers: Some(vec![SequencerConnectionData {
+            sequencer_addr: parsed_sequencer,
+            basic_auth: None,
+        }]),
         ..Default::default()
     };
-    WalletCore::new_update_chain(config_path, storage_path, Some(overrides))
-        .map_err(|e| format!("wallet init: {e}"))
+    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("tokio runtime: {e}"))?;
+    rt.block_on(WalletCore::new_update_chain(
+        config_path,
+        storage_path,
+        statistics_path,
+        Some(overrides),
+    ))
+    .map_err(|e| format!("wallet init: {e}"))
 }
 
 fn mint_token(payload: &Value) -> Result<(), String> {
@@ -223,9 +220,9 @@ fn mint_token(payload: &Value) -> Result<(), String> {
             .map_err(|e| format!("connect {sequencer_url}: {e}"))?;
         let started = Instant::now();
         let mut last_error: Option<String> = None;
-        loop {
+        let block_id = loop {
             match client.get_transaction(tx_hash).await {
-                Ok(Some(_)) => break,
+                Ok(Some((_transaction, block_id))) => break block_id,
                 Ok(None) => {}
                 Err(err) => last_error = Some(err.to_string()),
             }
@@ -238,7 +235,7 @@ fn mint_token(payload: &Value) -> Result<(), String> {
                 ));
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
-        }
+        };
 
         Ok::<_, String>(json!({
             "status": "TOKEN_MINTED",
@@ -246,6 +243,7 @@ fn mint_token(payload: &Value) -> Result<(), String> {
             "definition_account_id": format!("Public/{def_id}"),
             "supply_account_id": format!("Public/{supply_id}"),
             "tx_hash": tx_hash.to_string(),
+            "block_id": block_id,
             "name": name,
             "total_supply": total_supply.to_string(),
             "note": "registered via LEZ token program; claims settle by token-program transfer from the supply account"
@@ -412,7 +410,12 @@ fn parse_account_id(value: &str) -> Result<AccountId, String> {
 EOF
 
 ADAPTER_STDOUT="${ADAPTER_DIR}/stdout.log"
-if cargo run -q --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml" >"${ADAPTER_STDOUT}"; then
+if [[ "${DISTRIBUTIONX_LOCAL_TOKEN_COMPILE_ONLY:-0}" == "1" ]]; then
+  cargo +1.94.0 check -q --locked --release --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml"
+  echo "DISTRIBUTIONX_LOCAL_TOKEN_ADAPTER_COMPILE_OK"
+  exit 0
+fi
+if cargo +1.94.0 run -q --locked --release --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml" >"${ADAPTER_STDOUT}"; then
   tail -n 1 "${ADAPTER_STDOUT}"
 else
   cat "${ADAPTER_STDOUT}" >&2

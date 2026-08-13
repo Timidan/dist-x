@@ -167,6 +167,14 @@ fn ensure_active(state: &AirdropState, now_unix: i64) -> Result<(), SpelError> {
     Ok(())
 }
 
+fn with_claim_expiry(output: SpelOutput, expiry_unix: i64) -> SpelResult {
+    let expiry_millis = u64::try_from(expiry_unix)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1_000))
+        .ok_or_else(|| program_error(E_OVERFLOW, "airdrop expiry milliseconds overflow"))?;
+    Ok(output.with_timestamp_validity_window(..expiry_millis))
+}
+
 fn verify_claim_witness(
     journal: &ClaimJournal,
     claimant_address: [u8; 32],
@@ -209,6 +217,12 @@ fn verify_claim_witness(
 }
 
 fn verify_claim_receipt(receipt_bytes: &[u8]) -> Result<ClaimJournal, SpelError> {
+    #[cfg(test)]
+    if let Some(journal_bytes) = receipt_bytes.strip_prefix(TEST_VERIFIED_JOURNAL_PREFIX) {
+        return bincode::deserialize(journal_bytes)
+            .map_err(|_| program_error(E_BAD_PROOF, "test claim journal could not be decoded"));
+    }
+
     let receipt: Receipt = bincode::deserialize(receipt_bytes)
         .map_err(|_| program_error(E_BAD_PROOF, "claim receipt could not be decoded"))?;
     let claim = match &receipt.inner {
@@ -254,6 +268,9 @@ fn verify_claim_receipt(receipt_bytes: &[u8]) -> Result<ClaimJournal, SpelError>
         .decode()
         .map_err(|_| program_error(E_BAD_PROOF, "claim receipt journal could not be decoded"))
 }
+
+#[cfg(test)]
+const TEST_VERIFIED_JOURNAL_PREFIX: &[u8] = b"distributionx-test-verified-journal-v1:";
 
 #[lez_program]
 mod distributionx {
@@ -444,14 +461,17 @@ mod distributionx {
         let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
         nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]
@@ -531,14 +551,17 @@ mod distributionx {
         let mut nullifier_post = write_data(nullifier_record.account, &nullifier_state)?;
         nullifier_post.balance = checked_add_u128(nullifier_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]
@@ -623,15 +646,18 @@ mod distributionx {
         let mut recipient_post = recipient.account;
         recipient_post.balance = checked_add_u128(recipient_post.balance, u128::from(amount))?;
 
-        Ok(SpelOutput::execute(
-            vec![
-                write_data(airdrop.account, &state)?,
-                nullifier_post,
-                vault_post,
-                recipient_post,
-            ],
-            vec![],
-        ))
+        with_claim_expiry(
+            SpelOutput::execute(
+                vec![
+                    write_data(airdrop.account, &state)?,
+                    nullifier_post,
+                    vault_post,
+                    recipient_post,
+                ],
+                vec![],
+            ),
+            state.expiry_unix,
+        )
     }
 
     #[instruction]
@@ -673,6 +699,191 @@ mod distributionx {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use distributionx_tree::{h_empty, h_leaf, h_node, h_null};
+
+    const AIRDROP_ID: [u8; 32] = [1; 32];
+    const VAULT_ID: [u8; 32] = [2; 32];
+    const NULLIFIER_RECORD_ID: [u8; 32] = [8; 32];
+    const DESTINATION: [u8; 32] = [9; 32];
+    const SALT: [u8; 32] = [3; 32];
+    const CLAIMANT_ADDRESS: [u8; 32] = [
+        202, 147, 172, 23, 5, 24, 112, 113, 214, 123, 131, 199, 255, 14, 254, 129, 8, 232, 236, 69,
+        48, 87, 93, 119, 38, 135, 147, 51, 219, 218, 190, 124,
+    ];
+    const CLAIM_SIGNATURE: [u8; 64] = [
+        52, 58, 153, 234, 74, 221, 176, 25, 132, 247, 100, 169, 238, 159, 77, 238, 72, 23, 217,
+        182, 168, 115, 240, 157, 25, 249, 127, 233, 139, 198, 225, 145, 151, 78, 224, 58, 87, 15,
+        197, 32, 59, 25, 153, 76, 20, 46, 179, 163, 206, 75, 200, 199, 71, 87, 125, 21, 251, 114,
+        140, 118, 5, 203, 248, 6,
+    ];
+    const CLAIM_AMOUNT: u64 = 100;
+    const NOW_UNIX: i64 = 100;
+    const EXPIRY_UNIX: i64 = 1_700_000_123;
+    const EXPIRY_MILLIS: u64 = 1_700_000_123_000;
+
+    #[derive(Clone)]
+    struct ClaimFixture {
+        airdrop: AccountWithMetadata,
+        nullifier_record: AccountWithMetadata,
+        vault: AccountWithMetadata,
+        recipient: AccountWithMetadata,
+        journal: ClaimJournal,
+        merkle_path: Vec<MerklePathNode>,
+    }
+
+    impl ClaimFixture {
+        fn claim(&self) -> SpelResult {
+            let mut receipt_bytes = TEST_VERIFIED_JOURNAL_PREFIX.to_vec();
+            receipt_bytes
+                .extend(bincode::serialize(&self.journal).expect("serialize test claim journal"));
+            distributionx::claim(
+                self.airdrop.clone(),
+                self.nullifier_record.clone(),
+                self.vault.clone(),
+                AIRDROP_ID,
+                self.journal.nullifier,
+                receipt_bytes,
+                NOW_UNIX,
+            )
+        }
+
+        fn claim_private(&self) -> SpelResult {
+            distributionx::claim_private(
+                self.airdrop.clone(),
+                self.nullifier_record.clone(),
+                self.vault.clone(),
+                AIRDROP_ID,
+                0,
+                self.journal.nullifier,
+                DESTINATION,
+                CLAIMANT_ADDRESS,
+                SALT,
+                CLAIM_SIGNATURE.to_vec(),
+                self.merkle_path.iter().map(|node| node.sibling).collect(),
+                self.merkle_path.iter().map(|node| node.is_right).collect(),
+                NOW_UNIX,
+            )
+        }
+
+        fn claim_ppe(&self) -> SpelResult {
+            distributionx::claim_ppe(
+                self.airdrop.clone(),
+                self.nullifier_record.clone(),
+                self.vault.clone(),
+                self.recipient.clone(),
+                AIRDROP_ID,
+                0,
+                self.journal.nullifier,
+                DESTINATION,
+                CLAIMANT_ADDRESS,
+                SALT,
+                CLAIM_SIGNATURE.to_vec(),
+                self.merkle_path.iter().map(|node| node.sibling).collect(),
+                self.merkle_path.iter().map(|node| node.is_right).collect(),
+                NOW_UNIX,
+            )
+        }
+    }
+
+    fn account_with_id(account: Account, id: [u8; 32]) -> AccountWithMetadata {
+        AccountWithMetadata::new(account, false, lee_core::account::AccountId::new(id))
+    }
+
+    fn claim_fixture(expiry_unix: i64) -> ClaimFixture {
+        let mut merkle_path = Vec::with_capacity(TREE_DEPTH as usize);
+        let mut empty_subtree = h_empty();
+        let mut merkle_root = h_leaf(CLAIMANT_ADDRESS, 0, SALT);
+        for _ in 0..TREE_DEPTH {
+            merkle_path.push(MerklePathNode {
+                sibling: empty_subtree,
+                is_right: false,
+            });
+            merkle_root = h_node(merkle_root, empty_subtree);
+            empty_subtree = h_node(empty_subtree, empty_subtree);
+        }
+
+        let state = AirdropState {
+            airdrop_id: AIRDROP_ID,
+            distributor: [4; 32],
+            token_id: [5; 32],
+            merkle_root,
+            tree_depth: TREE_DEPTH,
+            bucket_table_hash: [6; 32],
+            bucket_table: vec![CLAIM_AMOUNT],
+            vault: VAULT_ID,
+            image_id: EXPECTED_IMAGE_ID,
+            expiry_unix,
+            recovery_address: [7; 32],
+            total_funded: CLAIM_AMOUNT,
+            total_claimed: 0,
+            created_at: 0,
+            status: STATUS_ACTIVE,
+        };
+        let airdrop_account = write_data(Account::default(), &state).expect("serialize airdrop");
+        let vault_account = Account {
+            balance: u128::from(CLAIM_AMOUNT),
+            ..Account::default()
+        };
+        let journal = ClaimJournal::new(AIRDROP_ID, merkle_root, 0, h_null(SALT), DESTINATION);
+
+        ClaimFixture {
+            airdrop: account_with_id(airdrop_account, [10; 32]),
+            nullifier_record: account_with_id(Account::default(), NULLIFIER_RECORD_ID),
+            vault: account_with_id(vault_account, VAULT_ID),
+            recipient: account_with_id(Account::default(), DESTINATION),
+            journal,
+            merkle_path,
+        }
+    }
+
+    fn assert_expiry_window(variant: &str, output: SpelOutput) {
+        let window = output.timestamp_validity_window;
+        assert_eq!(window.start(), None, "{variant} lower bound");
+        assert_eq!(window.end(), Some(EXPIRY_MILLIS), "{variant} upper bound");
+        assert!(
+            window.is_valid_for(EXPIRY_MILLIS - 1),
+            "{variant} must remain valid immediately before expiry"
+        );
+        assert!(
+            !window.is_valid_for(EXPIRY_MILLIS),
+            "{variant} expiry must be exclusive"
+        );
+    }
+
+    fn assert_overflow(variant: &str, result: SpelResult) {
+        match result {
+            Err(SpelError::Custom { code, .. }) => {
+                assert_eq!(code, E_OVERFLOW, "{variant} overflow error code")
+            }
+            other => panic!("{variant} must fail closed on expiry overflow: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_claim_output_ends_at_the_exclusive_airdrop_expiry() {
+        let fixture = claim_fixture(EXPIRY_UNIX);
+        for (variant, result) in [
+            ("claim", fixture.claim()),
+            ("claim_private", fixture.claim_private()),
+            ("claim_ppe", fixture.claim_ppe()),
+        ] {
+            assert_expiry_window(variant, result.expect("valid claim fixture"));
+        }
+    }
+
+    #[test]
+    fn every_claim_variant_fails_closed_when_expiry_milliseconds_overflow() {
+        let fixture = claim_fixture(i64::MAX);
+        for (variant, result) in [
+            ("claim", fixture.claim()),
+            ("claim_private", fixture.claim_private()),
+            ("claim_ppe", fixture.claim_ppe()),
+        ] {
+            assert_overflow(variant, result);
+        }
+    }
+
     #[test]
     fn __lssa_idl_print() {
         println!("--- LSSA IDL BEGIN distributionx ---");

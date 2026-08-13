@@ -14,26 +14,27 @@ Item {
             ? elapsed + " elapsed · Real proof generation can take several minutes. You can leave this window open."
             : (appRoot && appRoot.lastProofDurationSeconds > 0 ? "Proof generated in " + appRoot.formatElapsed(appRoot.lastProofDurationSeconds)
                 : (appRoot && appRoot.lastProofPath !== "" ? "Proof ready" : "privacy proof"))
-        var deliverSub = appRoot && appRoot.sampleStatus === "Delivering tokens" ? "submitting claim"
+        var deliverSub = appRoot && appRoot.sampleStatus === "Submitting claim" ? "submitting claim"
             : appRoot && appRoot.lastClaimTxId !== "" ? "tx " + String(appRoot.lastClaimTxId).substring(0, 12) + "…" : ""
+        var completionLabel = appRoot ? appRoot.claimCompletionStatus() : "Native payout confirmed"
         var rowDefs = [
             { label: "Loading sample data",             sub: appRoot ? appRoot.distributionStateDir : "target/distributionx-testnet" },
             { label: "Eligibility list ready",          sub: appRoot && appRoot.lastEligibleCount > 0 ? appRoot.lastEligibleCount + " entries" : "8 entries" },
             { label: "Distribution pool funded",        sub: appRoot ? appRoot.fundAmount + " tokens" : "tokens" },
             { label: "Generating your private proof",   sub: proveSub },
             { label: "Proof verified",                  sub: "checked locally" },
-            { label: "Tokens delivered",                sub: deliverSub }
+            { label: completionLabel,                    sub: deliverSub }
         ]
         var stages = ["Loading sample data", "Eligibility list ready", "Distribution pool funded",
-                      "Generating your private proof", "Proof verified", "Tokens delivered"]
-        var activeStatus = status === "Delivering tokens" ? "Tokens delivered" : status
+                      "Generating your private proof", "Proof verified", completionLabel]
+        var activeStatus = status === "Submitting claim" ? completionLabel : status
         var activeIdx = stages.indexOf(activeStatus)
         if (status === "Ready to claim") activeIdx = -1
         var failed = (status === "Claim failed") || (error && error.length > 0)
         var items = []
         for (var i = 0; i < rowDefs.length; i++) {
             var s = "upcoming"
-            if (status === "Tokens delivered") s = "done"
+            if (appRoot && appRoot.claimCompleted()) s = "done"
             else if (failed && i === Math.max(0, activeIdx)) s = "error"
             else if (activeIdx === -1) s = "upcoming"
             else if (i < activeIdx) s = "done"
@@ -110,15 +111,15 @@ Item {
                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
                 text: appRoot ? (
                     appRoot.sampleStatus === "Ready to claim" ? "ready"
-                    : appRoot.sampleStatus === "Tokens delivered" ? "done"
+                    : appRoot.claimCompleted() ? "done"
                     : appRoot.sampleError !== "" ? "error"
                     : "running"
                 ) : "ready"
                 tone: appRoot && appRoot.sampleError !== "" ? "danger"
-                    : appRoot && appRoot.sampleStatus === "Tokens delivered" ? "success"
+                    : appRoot && appRoot.claimCompleted() ? "success"
                     : "accent"
                 pulsing: appRoot && appRoot.sampleStatus !== "Ready to claim"
-                       && appRoot.sampleStatus !== "Tokens delivered"
+                       && !appRoot.claimCompleted()
                        && appRoot.sampleError === ""
             }
         }
@@ -167,8 +168,10 @@ Item {
         }
 
         Text {
-            visible: appRoot && appRoot.sampleStatus === "Tokens delivered"
-            text: "Tokens delivered. The sample pool shows this claim as paid."
+            visible: appRoot && appRoot.claimCompleted()
+            text: appRoot && appRoot.customTokenSettlementConfirmed()
+                ? "Custom-token settlement confirmed by a separate included transaction."
+                : "Native payout confirmed in the included claim transaction."
             color: appRoot ? appRoot.theme.success : "#15803D"
             font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
             font.pixelSize: 13

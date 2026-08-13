@@ -128,9 +128,8 @@ if [[ "${CHECK_RPC}" == "1" ]]; then
   if [[ -z "${LEZ_RPC_URL:-}" ]]; then
     fail "LEZ_RPC_URL is not set"
   else
-    http_code="$(curl --max-time 3 -sS -o /dev/null -w '%{http_code}' "${LEZ_RPC_URL}" 2>/dev/null || true)"
-    if [[ -n "${http_code}" && "${http_code}" != "000" ]]; then
-      ok "LEZ_RPC_URL reachable: ${LEZ_RPC_URL} (${http_code})"
+    if bash "${ROOT}/scripts/lez-fingerprint.sh" --rpc "${LEZ_RPC_URL}" >/dev/null 2>&1; then
+      ok "LEZ_RPC_URL healthy with compatible built-ins: ${LEZ_RPC_URL}"
     else
       fail "LEZ_RPC_URL not reachable: ${LEZ_RPC_URL}"
     fi
@@ -149,13 +148,9 @@ for hook in \
 done
 
 if [[ "${CHECK_WALLET}" == "1" ]]; then
-  WALLET_HOME="${NSSA_WALLET_HOME_DIR:-}"
+  WALLET_HOME="${LEE_WALLET_HOME_DIR:-}"
   if [[ -z "${WALLET_HOME}" ]]; then
-    if [[ -d "${ROOT}/.scaffold/wallet" ]]; then
-      WALLET_HOME="${ROOT}/.scaffold/wallet"
-    else
-      WALLET_HOME="${HOME}/.nssa/wallet"
-    fi
+    WALLET_HOME="${ROOT}/target/lez-v0.2.4-wallet"
   fi
   if [[ -f "${WALLET_HOME}/storage.json" ]]; then
     ok "LEZ wallet storage: ${WALLET_HOME}/storage.json"
@@ -169,7 +164,7 @@ if [[ "${CHECK_WALLET}" == "1" ]]; then
   fi
 fi
 
-if cargo run -q --release -p distributionx-cli -- method-id >/tmp/distributionx-preflight-method-id.json; then
+if cargo +1.94.0 run -q --release -p distributionx-cli -- method-id >/tmp/distributionx-preflight-method-id.json; then
   ok "distributionx-cli release method-id"
 else
   fail "distributionx-cli release build/method-id failed"

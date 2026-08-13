@@ -46,7 +46,7 @@ fn generated_shielded_destination_uses_lez_private_account_keys() {
     assert_ne!(destination.secrets.viewing_secret_key_d, [0u8; 32]);
     assert_ne!(destination.secrets.viewing_secret_key_z, [0u8; 32]);
     assert_ne!(
-        compute_destination_commitment(&destination.packet),
+        compute_destination_commitment(&destination.packet).unwrap(),
         [0u8; 32],
     );
 }
@@ -56,15 +56,22 @@ fn generated_destination_matches_local_submit_private_foreign_deserialization() 
     let destination = generate_shielded_destination();
     let packet = destination.packet;
     let parsed_vpk =
-        ViewingPublicKey::from_bytes(packet.vpk.clone()).expect("rc5 ML-KEM viewing public key");
-    let recipient = AccountId::from((&NullifierPublicKey(packet.npk), packet.identifier()));
+        ViewingPublicKey::from_bytes(packet.vpk.clone()).expect("LEZ ML-KEM viewing public key");
+    let recipient = AccountId::from((
+        &NullifierPublicKey(packet.npk),
+        &parsed_vpk,
+        packet.identifier(),
+    ));
 
     assert_eq!(parsed_vpk.to_bytes().len(), LEZ_VIEWING_PUBLIC_KEY_LEN);
-    assert_eq!(compute_destination_commitment(&packet), *recipient.value());
+    assert_eq!(
+        compute_destination_commitment(&packet).unwrap(),
+        *recipient.value()
+    );
 }
 
 #[test]
-fn destination_derivation_matches_rc5_key_protocol_vector() {
+fn destination_derivation_matches_lez_v0_2_4_key_protocol_vector() {
     let secret_spending_key = [
         246, 79, 26, 124, 135, 95, 52, 51, 201, 27, 48, 194, 2, 144, 51, 219, 245, 128, 139, 222,
         42, 195, 105, 33, 115, 97, 186, 0, 97, 14, 218, 191,
@@ -124,16 +131,39 @@ fn destination_commitment_is_private_account_id_bound_to_npk() {
         vpk: vec![2; LEZ_VIEWING_PUBLIC_KEY_LEN],
         identifier_le: [4; 16],
     };
+    let different_viewing_key = ShieldedDestinationPacket {
+        npk: [1; 32],
+        vpk: vec![5; LEZ_VIEWING_PUBLIC_KEY_LEN],
+        identifier_le: [3; 16],
+    };
+    assert_eq!(
+        compute_destination_commitment(&packet).unwrap(),
+        compute_destination_commitment(&same).unwrap()
+    );
+    assert_ne!(
+        compute_destination_commitment(&packet).unwrap(),
+        compute_destination_commitment(&different).unwrap()
+    );
+    assert_ne!(
+        compute_destination_commitment(&packet).unwrap(),
+        compute_destination_commitment(&different_identifier).unwrap()
+    );
+    assert_ne!(
+        compute_destination_commitment(&packet).unwrap(),
+        compute_destination_commitment(&different_viewing_key).unwrap()
+    );
+}
+
+#[test]
+fn destination_commitment_rejects_an_invalid_viewing_key_length() {
+    let packet = ShieldedDestinationPacket {
+        npk: [1; 32],
+        vpk: vec![2; 33],
+        identifier_le: [3; 16],
+    };
+
     assert_eq!(
         compute_destination_commitment(&packet),
-        compute_destination_commitment(&same)
-    );
-    assert_ne!(
-        compute_destination_commitment(&packet),
-        compute_destination_commitment(&different)
-    );
-    assert_ne!(
-        compute_destination_commitment(&packet),
-        compute_destination_commitment(&different_identifier)
+        Err(distributionx_client::DistributionXClientError::InvalidDestinationPacket)
     );
 }

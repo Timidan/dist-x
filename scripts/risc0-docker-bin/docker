@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_docker="${DISTRIBUTIONX_REAL_DOCKER:-}"
+if [[ -z "${real_docker}" || "${real_docker}" != /* || ! -x "${real_docker}" ]]; then
+  echo "E_DISTRIBUTIONX_REAL_DOCKER_INVALID: set DISTRIBUTIONX_REAL_DOCKER to the absolute Docker CLI path" >&2
+  exit 2
+fi
+
+# The pinned Groth16 finalizer is entirely local: its input and output are passed
+# through /mnt. Risc0 3.0.x hardcodes `docker run` without a network flag, so
+# force the null network for that exact image. Everything else passes through.
+if [[ "${1:-}" == "run" ]]; then
+  groth16_image="risczero/risc0-groth16-prover:v2025-04-03.1"
+  for arg in "$@"; do
+    if [[ "${arg}" == "${groth16_image}" ]]; then
+      shift
+      exec "${real_docker}" run --network none "$@"
+    fi
+  done
+fi
+
+exec "${real_docker}" "$@"

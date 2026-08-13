@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${DISTRIBUTIONX_TEST_DOCKER_MODE:-ready}"
+
+if [[ -n "${DISTRIBUTIONX_TEST_DOCKER_LOG:-}" ]]; then
+  printf '%s\n' "$*" >> "${DISTRIBUTIONX_TEST_DOCKER_LOG}"
+fi
+
+case "${1:-}" in
+  info)
+    if [[ "${mode}" == "unavailable" ]]; then
+      echo "cannot connect to test Docker daemon" >&2
+      exit 1
+    fi
+    ;;
+  context)
+    if [[ "${2:-}" == "show" ]]; then
+      printf '%s\n' "test-${mode}"
+    fi
+    ;;
+  image)
+    if [[ "${2:-}" == "inspect" && "${mode}" == "missing-image" ]]; then
+      exit 1
+    fi
+    ;;
+  pull)
+    echo "FAKE_DOCKER_PULL_OK ${2:-}"
+    ;;
+  --version)
+    echo "Docker version test"
+    ;;
+esac

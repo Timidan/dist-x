@@ -7,6 +7,7 @@ cd "${ROOT}"
 OUT_DIR="${DISTRIBUTIONX_LGX_DIR:-${ROOT}/target/lgx}"
 VARIANT="${DISTRIBUTIONX_LGX_VARIANT:-linux-amd64-dev}"
 CARGO_PROFILE="${DISTRIBUTIONX_CARGO_PROFILE:-release}"
+CHECKSUM_FILE="${OUT_DIR}/SHA256SUMS"
 
 usage() {
   cat <<'EOF'
@@ -15,6 +16,7 @@ Usage: scripts/package.sh
 Builds the two unsigned development LGX assets used by the Basecamp path:
   target/lgx/distributionx-client.lgx
   target/lgx/DistributionX-ui.lgx
+  target/lgx/SHA256SUMS
 
 Environment:
   DISTRIBUTIONX_LGX_DIR          Output directory. Default: target/lgx.
@@ -69,7 +71,7 @@ log "Checking Risc0 toolchain"
 bash scripts/risc0-setup.sh
 
 log "Building Rust CLI (${CARGO_PROFILE})"
-cargo build -p distributionx-cli "${cargo_args[@]}"
+cargo +1.94.0 build --locked -p distributionx-cli "${cargo_args[@]}"
 export DISTRIBUTIONX_CLI="${cli_path}"
 
 log "Building distributionx_client Logos module"
@@ -195,5 +197,18 @@ log "Verifying LGX packages"
 "${LGX_BIN}" verify "${OUT_DIR}/distributionx-client.lgx"
 "${LGX_BIN}" verify "${OUT_DIR}/DistributionX-ui.lgx"
 
+log "Writing and verifying deterministic SHA-256 checksums"
+chmod u+w "${CHECKSUM_FILE}" 2>/dev/null || true
+(
+  cd "${OUT_DIR}"
+  LC_ALL=C sha256sum \
+    distributionx-client.lgx \
+    DistributionX-ui.lgx >SHA256SUMS
+  LC_ALL=C sha256sum --check SHA256SUMS
+)
+
 log "Artifacts"
-ls -lh "${OUT_DIR}/distributionx-client.lgx" "${OUT_DIR}/DistributionX-ui.lgx"
+ls -lh \
+  "${OUT_DIR}/distributionx-client.lgx" \
+  "${OUT_DIR}/DistributionX-ui.lgx" \
+  "${CHECKSUM_FILE}"

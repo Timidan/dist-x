@@ -4,17 +4,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      run_localnet_e2e:
-        description: Run the guarded standalone LEZ sequencer E2E.
-        required: false
-        default: false
-        type: boolean
-      allow_localnet_e2e_skip:
-        description: Allow the localnet job to exit skipped when no sequencer is configured.
-        required: false
-        default: false
-        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
   scripts:
@@ -22,18 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: bash -n on every shell script under scripts/
+      - name: Shell syntax and Docker preflight regression
         run: |
           set -e
-          shopt -s nullglob
           fail=0
-          for s in scripts/*.sh; do
+          while IFS= read -r s; do
             if ! bash -n "$s"; then
               echo "syntax error in $s" >&2
               fail=1
             fi
-          done
-          exit "$fail"
+          done < <(find scripts -type f -name '*.sh' -print | sort)
+          test "$fail" -eq 0
+          bash scripts/tests/docker-preflight-test.sh
+          bash scripts/tests/docker-wrapper-test.sh
+          bash scripts/tests/ci-build-profile-test.sh
+          bash scripts/tests/basecamp-launcher-test.sh
+          bash scripts/tests/basecamp-release-gates-test.sh
+          bash scripts/tests/lez-source-guard-test.sh
+          bash scripts/tests/testnet-evidence-test.sh
 
   rust:
     runs-on: ubuntu-latest
@@ -77,6 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
       - uses: cachix/install-nix-action@v31
         with:
           extra_nix_config: |
@@ -98,63 +98,193 @@ jobs:
         run: bash scripts/risc0-setup.sh
       - name: Verify LGX packaging
         run: bash scripts/package.sh
+      - name: Install and load the exact LGX packages
+        run: |
+          set -euo pipefail
+          lgpm_out="$(nix --extra-experimental-features 'nix-command flakes' \
+            build --no-link --print-out-paths \
+            github:logos-co/logos-package-manager/8110734252edf9ca4266f475ace1c7c9bee68018#default)"
+          standalone_out="$(nix --extra-experimental-features 'nix-command flakes' \
+            build --no-link --print-out-paths \
+            github:logos-co/logos-standalone-app/c3a079c1e007deee592ce74196c258077bdf3692#default)"
+          LGPM_BIN="${lgpm_out}/bin/lgpm" \
+            LOGOS_STANDALONE_APP_BIN="${standalone_out}/bin/logos-standalone-app" \
+            bash scripts/lgx-load-smoke.sh
+      - name: Upload verified Basecamp LGX packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: distributionx-lgx-linux-amd64-dev
+          if-no-files-found: error
+          path: |
+            target/lgx/distributionx-client.lgx
+            target/lgx/DistributionX-ui.lgx
+            target/lgx/SHA256SUMS
 
   localnet-e2e:
-    name: Standalone LEZ E2E (push/PR — skips when no sequencer configured)
-    # LP-0003 brief: "End-to-end integration tests run against a LEZ sequencer
-    # (standalone mode) and are included in CI." We always run this job; if the
-    # repo doesn't have DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND configured,
-    # scripts/e2e.sh ci-localnet exits skipped (status 0) so green-on-default-branch isn't
-    # blocked by infra-only configuration. Manual workflow_dispatch with
-    # allow_localnet_e2e_skip=false enforces a hard fail.
-    #
-    # Enabling real-proof e2e in CI (follow-up, not active today): set the
-    # DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND repo secret to a script that
-    # builds the vendored LEZ sequencer from .scaffold/cache/repos/lez/<sha>/
-    # (cargo build of the sequencer + wallet binaries), and set
-    # DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND to a script that launches the
-    # built sequencer with the standalone-mode flags used by
-    # scripts/standalone-sequencer.sh. Expect a full real-proof run to take
-    # 50-80 minutes warm-cache on ubuntu-latest because of the Risc0 proving
-    # step (RISC0_DEV_MODE=0). Recommended: trigger this job on schedule
-    # (nightly) and workflow_dispatch only, not on every push/PR.
-    if: |
-      github.event_name != 'workflow_dispatch' ||
-      (github.event_name == 'workflow_dispatch' && inputs.run_localnet_e2e)
-    runs-on: ubuntu-latest
+    name: Standalone LEZ v0.2.4 real-proof E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Risc0 toolchain
-        run: bash scripts/risc0-setup.sh
-      - name: Optional LEZ sequencer setup
-        env:
-          DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND: ${{ secrets.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND || vars.DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND }}
+      - name: Reclaim runner disk for two real proofs
         run: |
-          if [[ -n "${DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND}" ]]; then
-            bash -lc "${DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND}"
-          else
-            echo "No DISTRIBUTIONX_LEZ_SEQUENCER_SETUP_COMMAND configured."
+          set -euo pipefail
+          before_kib="$(df --output=avail -k / | tail -n 1 | tr -d ' ')"
+          sudo rm -rf -- \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/local/share/powershell \
+            /usr/share/dotnet
+          docker system prune --all --force
+          sudo apt-get clean
+          after_kib="$(df --output=avail -k / | tail -n 1 | tr -d ' ')"
+          printf 'runner disk: before=%sKiB after=%sKiB\n' "${before_kib}" "${after_kib}"
+          minimum_kib=$((28 * 1024 * 1024))
+          if (( after_kib < minimum_kib )); then
+            echo "E_DISTRIBUTIONX_CI_DISK: need at least 28 GiB free before checkout/build" >&2
+            exit 1
           fi
-      - name: Run localnet sequencer demo
+
+      - uses: actions/checkout@v4
+
+      - name: Check out exact LEZ v0.2.4 source
+        uses: actions/checkout@v4
+        with:
+          repository: logos-blockchain/logos-execution-zone
+          ref: 47eba256479f6f785acbd138834340703cd03401
+          path: .scaffold/cache/repos/lez/v0.2.4
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify LEZ source pin
+        run: |
+          actual="$(git -C .scaffold/cache/repos/lez/v0.2.4 rev-parse HEAD)"
+          test "$actual" = "47eba256479f6f785acbd138834340703cd03401"
+          git -C .scaffold/cache/repos/lez/v0.2.4 diff --exit-code
+
+      - name: Install LEZ build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            clang \
+            libclang-dev \
+            libpcsclite-dev \
+            libssl-dev \
+            pkg-config \
+            python3-dev
+
+      - name: Install Rust 1.94.0
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+
+      - name: Install Risc0 toolchain
         env:
-          # On push/PR runs and on workflow_dispatch with allow_localnet_e2e_skip,
-          # let scripts/e2e.sh ci-localnet exit skipped if no sequencer is configured. Operators
-          # who want a hard-fail run should call workflow_dispatch with
-          # allow_localnet_e2e_skip=false.
-          DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP: ${{ (github.event_name != 'workflow_dispatch' || inputs.allow_localnet_e2e_skip) && '1' || '0' }}
-          DISTRIBUTIONX_LEZ_SEQUENCER_BIN: ${{ vars.DISTRIBUTIONX_LEZ_SEQUENCER_BIN }}
-          DISTRIBUTIONX_LEZ_SEQUENCER_ARGS: ${{ vars.DISTRIBUTIONX_LEZ_SEQUENCER_ARGS }}
-          DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND: ${{ secrets.DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND || vars.DISTRIBUTIONX_LEZ_SEQUENCER_START_COMMAND }}
-          DISTRIBUTIONX_LOCALNET_RPC_URL: ${{ vars.DISTRIBUTIONX_LOCALNET_RPC_URL || 'http://127.0.0.1:3040' }}
-          LEZ_DEPLOY_COMMAND: ${{ secrets.LEZ_DEPLOY_COMMAND_LOCALNET || vars.LEZ_DEPLOY_COMMAND_LOCALNET }}
-          LEZ_DEPLOYER_WALLET: ${{ secrets.LEZ_DEPLOYER_WALLET_LOCALNET || vars.LEZ_DEPLOYER_WALLET_LOCALNET }}
-          DISTRIBUTIONX_TOKEN_ID: ${{ secrets.DISTRIBUTIONX_TOKEN_ID_LOCALNET || vars.DISTRIBUTIONX_TOKEN_ID_LOCALNET }}
-          DISTRIBUTIONX_RECOVERY_ADDRESS: ${{ secrets.DISTRIBUTIONX_RECOVERY_ADDRESS_LOCALNET || vars.DISTRIBUTIONX_RECOVERY_ADDRESS_LOCALNET }}
-          DISTRIBUTIONX_INIT_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_INIT_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_INIT_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_INIT_SUBMIT_COMMAND }}
-          DISTRIBUTIONX_FUND_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_FUND_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_FUND_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_FUND_SUBMIT_COMMAND }}
-          DISTRIBUTIONX_RELAYER_URL: ${{ secrets.DISTRIBUTIONX_RELAYER_URL_LOCALNET || vars.DISTRIBUTIONX_RELAYER_URL_LOCALNET || 'localnet' }}
-          DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND }}
-          DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND: ${{ secrets.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND_LOCALNET || vars.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND_LOCALNET || secrets.DISTRIBUTIONX_CLOSE_SUBMIT_COMMAND }}
-          DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64: ${{ secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64_LOCALNET || secrets.DISTRIBUTIONX_SERIALIZED_LEZ_TX_BASE64 }}
+          RISC0_CARGO_RISCZERO_VERSION: 3.0.5
+          RISC0_CPP_VERSION: 2024.1.5
+          RISC0_R0VM_VERSION: 3.0.5
+          RISC0_RUST_VERSION: 1.94.1
+        run: bash scripts/risc0-setup.sh
+
+      - name: Verify Risc0 prover version
+        run: r0vm --version | grep -F '3.0.5'
+
+      - name: Run canonical standalone lifecycle
+        env:
+          CARGO_HOME: ${{ runner.temp }}/distributionx-cargo-home
+          CARGO_INCREMENTAL: "0"
+          DISTRIBUTIONX_LOCAL_LOG_DIR: ${{ github.workspace }}/target/distributionx-ci-e2e-logs
+          DISTRIBUTIONX_SEQUENCER_BLOCK_CREATE_TIMEOUT: "5s"
+          DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT: "0"
+          RISC0_DEV_MODE: "0"
         run: bash scripts/e2e.sh ci-localnet
+
+      - name: Reject private material in lifecycle logs
+        id: lifecycle-log-scan
+        if: always()
+        run: |
+          set -euo pipefail
+          log_dir="target/distributionx-ci-e2e-logs"
+          scan_paths=()
+          [[ -d "${log_dir}" ]] && scan_paths+=("${log_dir}")
+          [[ -f target/distributionx-localnet/deployment.json ]] && \
+            scan_paths+=(target/distributionx-localnet/deployment.json)
+          [[ -d target/distributionx-localnet/receipts ]] && \
+            scan_paths+=(target/distributionx-localnet/receipts)
+          ((${#scan_paths[@]} > 0)) || exit 0
+          if grep -R -E -i -q \
+            'seed_hex|private[_ -]?key|mnemonic|private_claim|recipient_npk|recipient_vpk|merkle_path|wallet\.seed' \
+            "${scan_paths[@]}"; then
+            echo "E_DISTRIBUTIONX_PRIVATE_LOG_MATERIAL" >&2
+            exit 1
+          fi
+
+      - name: Upload witness-free lifecycle evidence
+        if: always() && steps.lifecycle-log-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: distributionx-standalone-e2e-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            target/distributionx-ci-e2e-logs/*.log
+            target/distributionx-localnet/deployment.json
+            target/distributionx-localnet/receipts/*.json
+
+  release:
+    name: Publish verified LGX assets
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [scripts, rust, logos, localnet-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: distributionx-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Download verified LGX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: distributionx-lgx-linux-amd64-dev
+          path: release
+
+      - name: Recheck release payload
+        working-directory: release
+        run: |
+          set -euo pipefail
+          test -s distributionx-client.lgx
+          test -s DistributionX-ui.lgx
+          test -s SHA256SUMS
+          test "$(wc -l < SHA256SUMS)" -eq 2
+          diff -u \
+            <(awk '{print $2}' SHA256SUMS) \
+            <(printf '%s\n' distributionx-client.lgx DistributionX-ui.lgx)
+          sha256sum --strict --check SHA256SUMS
+          core_version="$(tar -xOzf distributionx-client.lgx manifest.json | jq -er .version)"
+          ui_version="$(tar -xOzf DistributionX-ui.lgx manifest.json | jq -er .version)"
+          test "${core_version}" = "${ui_version}"
+          test "${GITHUB_REF_NAME}" = "v${core_version}"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Refusing non-version release tag: ${GITHUB_REF_NAME}" >&2
+            exit 2
+          fi
+          tag_sha="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" \
+            --jq .sha)"
+          test "${tag_sha}" = "${GITHUB_SHA}"
+          gh release create "${GITHUB_REF_NAME}" \
+            release/distributionx-client.lgx \
+            release/DistributionX-ui.lgx \
+            release/SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --title "DistributionX ${GITHUB_REF_NAME}" \
+            --notes "Unsigned linux-amd64 Basecamp reviewer packages built and verified by distributionx-ci from commit ${GITHUB_SHA}."

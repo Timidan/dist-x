@@ -30,6 +30,8 @@ fn relayer_payload_contains_no_salt() {
     assert!(!encoded.contains("salt"));
     let resp = RelayerSubmitResponse {
         tx_id: "tx123".into(),
+        token_tx_id: None,
+        token_block_id: None,
     };
     assert_eq!(resp.tx_id, "tx123");
 }

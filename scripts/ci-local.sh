@@ -13,7 +13,7 @@ Modes:
   scripts         Bash syntax + helper-script lint.
   rust            Mirrors the GitHub Actions rust job.
   logos           Mirrors the GitHub Actions logos/package job.
-  localnet-e2e    Mirrors the push/PR localnet job; may skip like CI.
+  localnet-e2e    Mirrors the mandatory push/PR standalone job.
   quick           Tracked-file check, shell syntax, cargo metadata, rustfmt.
   tracked         Check files CI needs are tracked by git.
 
@@ -72,21 +72,41 @@ run_tracked_check() {
     "README.md"
     "DistributionX.system-architecture.excalidraw"
     "docs/TESTNET_EVIDENCE.md"
+    "docs/demo-video-script.md"
+    "docs/RC5_PPE_HANDOFF.md"
     # Sentinel for the committed testnet verification artifacts: if docs/testnet-evidence/
     # gets re-gitignored, the submission's evidence links break — fail loudly here.
     "docs/testnet-evidence/b1/gettransaction-b1.jsonl"
     "scripts/ci-local.sh"
+    "scripts/adapter-lock/Cargo.lock"
+    "scripts/adapter-lock/Cargo.toml"
+    "scripts/adapter-lock/src/main.rs"
+    "scripts/docker-preflight.sh"
+    "scripts/lgx-load-probe.mjs"
+    "scripts/lgx-load-smoke.sh"
+    "scripts/lez-fingerprint.sh"
+    "scripts/lez-source-guard.sh"
+    "scripts/testnet-evidence.sh"
+    "scripts/risc0-docker-bin/docker"
     "scripts/risc0-setup.sh"
+    "scripts/tests/basecamp-launcher-test.sh"
+    "scripts/tests/basecamp-release-gates-test.sh"
+    "scripts/tests/ci-build-profile-test.sh"
+    "scripts/tests/docker-preflight-test.sh"
+    "scripts/tests/docker-wrapper-test.sh"
+    "scripts/tests/fixtures/docker"
+    "scripts/tests/lez-source-guard-test.sh"
+    "scripts/tests/testnet-evidence-test.sh"
     # Sentinels for the vendored spel-framework fork: if the whole tree is ever
     # re-gitignored (the original CI break), these stop being tracked and fail.
     "vendor/spel-framework/Cargo.toml"
     "vendor/spel-framework/spel-framework/Cargo.toml"
     "vendor/spel-framework/spel-framework-macros/src/lib.rs"
   )
-  # nssa_core + fixtures: every file is a build input and must be tracked.
+  # Reviewer fixtures are build/runtime inputs and must be tracked.
   while IFS= read -r file; do
     required+=("${file}")
-  done < <(find vendor/nssa_core fixtures/reviewer-fast-path -type f | sort)
+  done < <(find fixtures/reviewer-fast-path -type f | sort)
 
   for file in "${required[@]}"; do
     if [[ ! -f "${file}" ]]; then
@@ -120,17 +140,30 @@ run_tracked_check() {
 }
 
 run_scripts_check() {
-  log "bash -n scripts/*.sh"
-  shopt -s nullglob
+  log "bash -n scripts/**/*.sh"
   local fail=0
   local script
-  for script in scripts/*.sh; do
+  while IFS= read -r script; do
     if ! bash -n "${script}"; then
       printf '[distributionx-ci-local] syntax error in %s\n' "${script}" >&2
       fail=1
     fi
-  done
+  done < <(find scripts -type f -name '*.sh' -print | sort)
   [[ "${fail}" -eq 0 ]]
+  log "docker preflight regression test"
+  bash scripts/tests/docker-preflight-test.sh
+  log "Risc0 Docker wrapper regression test"
+  bash scripts/tests/docker-wrapper-test.sh
+  log "CI build-profile regression test"
+  bash scripts/tests/ci-build-profile-test.sh
+  log "Basecamp bundled-launcher regression test"
+  bash scripts/tests/basecamp-launcher-test.sh
+  log "Basecamp release-gate regression test"
+  bash scripts/tests/basecamp-release-gates-test.sh
+  log "exact LEZ source guard regression test"
+  bash scripts/tests/lez-source-guard-test.sh
+  log "LP-0003 testnet evidence regression test"
+  bash scripts/tests/testnet-evidence-test.sh
 }
 
 ensure_risc0_toolchain() {
@@ -191,12 +224,15 @@ run_logos_job() {
   log "bash scripts/package.sh"
   ensure_risc0_toolchain
   bash scripts/package.sh
+
+  log "load the exact installed LGX packages"
+  bash scripts/lgx-load-smoke.sh
 }
 
 run_localnet_e2e_job() {
   log "job localnet-e2e"
-  export DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP="${DISTRIBUTIONX_LOCALNET_E2E_ALLOW_SKIP:-1}"
   export DISTRIBUTIONX_LOCALNET_RPC_URL="${DISTRIBUTIONX_LOCALNET_RPC_URL:-http://127.0.0.1:3040}"
+  export DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT="${DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT:-0}"
   ensure_risc0_toolchain
   bash scripts/e2e.sh ci-localnet
 }
