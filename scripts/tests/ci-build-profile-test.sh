@@ -58,6 +58,14 @@ mapfile -t standalone_block_timeouts < <(
   || fail "standalone block creation default must exactly match the canonical workflow"
 grep -Fq 'cargo +1.94.0 build --locked -p distributionx-cli' "${ROOT}/scripts/package.sh" \
   || fail "LGX packaging does not use pinned, locked Rust"
+grep -Fq 'RISC0_CARGO_BIN_DIR="${CARGO_HOME:-${HOME}/.cargo}/bin"' \
+  "${ROOT}/scripts/risc0-setup.sh" \
+  || fail "Risc0 setup does not resolve rzup-installed binaries from CARGO_HOME"
+grep -Fq 'printf '\''%s\n'\'' "${RISC0_CARGO_BIN_DIR}" >> "${GITHUB_PATH}"' \
+  "${ROOT}/scripts/risc0-setup.sh" \
+  || fail "Risc0 setup does not persist CARGO_HOME/bin for later Actions steps"
+grep -Fq 'r0vm --version' "${ROOT}/scripts/risc0-setup.sh" \
+  || fail "Risc0 setup does not verify that r0vm is callable before returning"
 grep -Fq 'test "${GITHUB_REF_NAME}" = "v${core_version}"' "${workflow}" \
   || fail "release tag is not required to match the package versions"
 grep -Fq 'id: lifecycle-log-scan' "${workflow}" \

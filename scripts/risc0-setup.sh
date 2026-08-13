@@ -37,9 +37,11 @@ if [[ ! -x "${RZUP_BIN}" ]]; then
   exit 2
 fi
 
-export PATH="$(dirname "${RZUP_BIN}"):${PATH}"
+RISC0_CARGO_BIN_DIR="${CARGO_HOME:-${HOME}/.cargo}/bin"
+export PATH="$(dirname "${RZUP_BIN}"):${RISC0_CARGO_BIN_DIR}:${PATH}"
 if [[ -n "${GITHUB_PATH:-}" ]]; then
   dirname "${RZUP_BIN}" >> "${GITHUB_PATH}"
+  printf '%s\n' "${RISC0_CARGO_BIN_DIR}" >> "${GITHUB_PATH}"
 fi
 
 log "Using ${RZUP_BIN}"
@@ -72,6 +74,15 @@ install_component cpp "${RISC0_CPP_VERSION}"
 install_component cargo-risczero "${RISC0_CARGO_RISCZERO_VERSION}"
 install_component r0vm "${RISC0_R0VM_VERSION}"
 printf '%s\n' "${RZUP_SHOW}"
+
+if ! command -v r0vm >/dev/null 2>&1; then
+  echo "E_RISC0_R0VM_MISSING: rzup did not expose r0vm under ${RISC0_CARGO_BIN_DIR}" >&2
+  exit 2
+fi
+if ! r0vm --version | grep -Fq "${RISC0_R0VM_VERSION}"; then
+  echo "E_RISC0_R0VM_VERSION: expected ${RISC0_R0VM_VERSION}" >&2
+  exit 2
+fi
 
 if ! find "${RISC0_HOME:-${HOME}/.risc0}/toolchains" -path '*/bin/rustc' -type f -print -quit 2>/dev/null | grep -q .; then
   echo "E_RISC0_RUST_TOOLCHAIN_MISSING: rzup did not install a Risc0 Rust toolchain" >&2
