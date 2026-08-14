@@ -82,17 +82,28 @@ Item {
                 pulsing: true
             }
 
-            Text {
+            RowLayout {
                 Layout.fillWidth: true
-                text: "DistributionX"
-                color: appRoot ? appRoot.theme.fg : "#0F172A"
-                font.family: appRoot ? appRoot.theme.fontDisplay : "serif"
-                font.pixelSize: 40
-                font.weight: Font.DemiBold
-                font.italic: true
-                font.letterSpacing: -0.4
-                wrapMode: Text.WordWrap
-                lineHeight: 1.0
+                spacing: 12
+                Image {
+                    width: 30
+                    height: 30
+                    source: "../assets/icons/distributionx-mark.svg"
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "DistributionX"
+                    color: appRoot ? appRoot.theme.fg : "#0F172A"
+                    font.family: appRoot ? appRoot.theme.fontDisplay : "serif"
+                    font.pixelSize: 40
+                    font.weight: Font.DemiBold
+                    font.italic: true
+                    font.letterSpacing: -0.4
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.0
+                }
             }
 
             Text {
@@ -124,6 +135,7 @@ Item {
                         theme: landing.appRoot ? landing.appRoot.theme : null
                         accent: true
                         text: "Create distribution"
+                        iconSource: "../assets/icons/distribution.svg"
                         onClicked: if (landing.appRoot) landing.appRoot.screen = "distributor"
                     }
                 }
@@ -140,22 +152,18 @@ Item {
                     GhostButton {
                         theme: landing.appRoot ? landing.appRoot.theme : null
                         text: "Claim distribution"
+                        iconSource: "../assets/icons/claim.svg"
                         onClicked: if (landing.appRoot) landing.appRoot.screen = "claim"
                     }
                 }
             }
 
-            Text {
+            GhostButton {
                 Layout.topMargin: 4
-                text: "View distributions →"
-                color: appRoot ? appRoot.theme.fg2 : "#475569"
-                font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
-                font.pixelSize: 12
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: if (landing.appRoot) landing.appRoot.screen = "monitor"
-                }
+                theme: landing.appRoot ? landing.appRoot.theme : null
+                text: "View distributions"
+                iconSource: "../assets/icons/document.svg"
+                onClicked: if (landing.appRoot) landing.appRoot.screen = "monitor"
             }
 
             RowLayout {
@@ -170,11 +178,13 @@ Item {
                 GhostButton {
                     theme: landing.appRoot ? landing.appRoot.theme : null
                     text: "Try with sample data"
+                    iconSource: "../assets/icons/claim.svg"
                     onClicked: if (landing.appRoot) landing.appRoot.screen = "sample"
                 }
                 GhostButton {
                     theme: landing.appRoot ? landing.appRoot.theme : null
                     text: "Set up real distribution"
+                    iconSource: "../assets/icons/distribution.svg"
                     onClicked: if (landing.appRoot) landing.appRoot.screen = "distributor"
                 }
             }
@@ -205,6 +215,7 @@ Item {
                 GhostButton {
                     theme: landing.appRoot ? landing.appRoot.theme : null
                     text: "Refresh"
+                    iconSource: "../assets/icons/refresh.svg"
                     visible: appRoot && appRoot.airdrops.length === 0
                     onClicked: if (appRoot) appRoot.refreshAirdropsUntilReady()
                 }
@@ -259,6 +270,7 @@ Item {
                                 GhostButton {
                                     theme: landing.appRoot ? landing.appRoot.theme : null
                                     text: "Claim"
+                                    iconSource: "../assets/icons/claim.svg"
                                     paddingH: 10
                                     onClicked: {
                                         if (appRoot) {
@@ -270,6 +282,7 @@ Item {
                                 GhostButton {
                                     theme: landing.appRoot ? landing.appRoot.theme : null
                                     text: "Monitor"
+                                    iconSource: "../assets/icons/document.svg"
                                     paddingH: 10
                                     onClicked: {
                                         if (appRoot) {

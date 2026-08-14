@@ -7,6 +7,7 @@ Button {
     property bool accent: false
     property bool busy: false
     property string busyText: ""
+    property string iconSource: ""
     property int paddingH: 14
 
     height: 36
@@ -32,6 +33,21 @@ Button {
                 height: 14
                 visible: root.busy
                 running: root.visible && root.busy
+            }
+            Rectangle {
+                width: 16
+                height: 16
+                visible: !root.busy && root.iconSource.length > 0
+                radius: 8
+                color: root.theme ? root.theme.accentInk : "#FBF8F1"
+
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 1
+                    source: root.iconSource
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                }
             }
             Text {
                 text: root.busy && root.busyText.length > 0 ? root.busyText : root.text

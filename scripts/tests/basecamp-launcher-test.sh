@@ -29,7 +29,7 @@ grep -Fq "Command: ${bundle}" <<<"${output}" || {
 }
 
 reset_root="${TEST_DIR}/reset-root"
-mkdir -p "${reset_root}/scripts" "${reset_root}/fixtures/reviewer-fast-path"
+mkdir -p "${reset_root}/scripts" "${reset_root}/fixtures/reviewer-fast-path" "${reset_root}/target/release"
 cp "${ROOT}/scripts/start-basecamp.sh" "${reset_root}/scripts/start-basecamp.sh"
 for helper in standalone-sequencer.sh deploy.sh; do
   cat >"${reset_root}/scripts/${helper}" <<'EOF'
@@ -44,8 +44,15 @@ printf '%s\\n' "\$*" >"${TEST_DIR}/wallet-bootstrap-args"
 printf '%s\\n' 'Public/CbgR6tj5kWx5oziiFptM7jMvrQeYY3Mzaao6ciuhSr2r'
 EOF
 chmod 0755 "${reset_root}/scripts/wallet-bootstrap.sh"
+cat >"${reset_root}/target/release/distributionx-cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "token-id" ]]
+printf '%s\n' '{"status":"TOKEN_ID_OK","registered":false,"token_id":"Public/native-compatibility-label"}'
+EOF
+chmod 0755 "${reset_root}/target/release/distributionx-cli"
 
-PATH="/usr/bin:/bin" \
+reset_output="$(PATH="/usr/bin:/bin" \
   LEZ_RPC_URL=http://127.0.0.1:3040 \
   DISTRIBUTIONX_ENV_FILE=/dev/null \
   DISTRIBUTIONX_STATE_DIR="${TEST_DIR}/reset-state" \
@@ -55,10 +62,16 @@ PATH="/usr/bin:/bin" \
     --reset-localnet \
     --no-package \
     --no-install \
-    --no-launch >/dev/null
+    --no-launch)"
 
 grep -Fxq -- '--clean' "${TEST_DIR}/wallet-bootstrap-args" || {
   echo "basecamp-launcher-test: reset-localnet did not clean the fixture wallet" >&2
+  exit 1
+}
+
+grep -Fq 'distributionx-token=Public/native-compatibility-label' <<<"${reset_output}" || {
+  printf '%s\n' "${reset_output}" >&2
+  echo "basecamp-launcher-test: native LEZ compatibility label was not passed to Basecamp" >&2
   exit 1
 }
 

@@ -75,6 +75,7 @@ Item {
             GhostButton {
                 theme: page.appRoot ? page.appRoot.theme : null
                 text: "Refresh"
+                iconSource: "../assets/icons/refresh.svg"
                 onClicked: if (appRoot) appRoot.refreshAirdrops()
             }
         }
@@ -88,6 +89,7 @@ Item {
                 label: "CLAIMED TOKENS"
                 value: page.totalClaimed + " / " + page.totalFunded
                 sub: page.currentAirdrop ? page.currentAirdrop.eligible_count + " eligible recipients" : ""
+                iconSource: "../assets/icons/claim.svg"
                 Layout.fillWidth: true
                 Layout.minimumHeight: 170
 
@@ -104,6 +106,7 @@ Item {
                 label: "POOL REMAINING"
                 value: String(page.remaining)
                 sub: page.currentAirdrop ? "token id " + page.shortHex(page.currentAirdrop.token_id) : ""
+                iconSource: "../assets/icons/vault.svg"
                 Layout.fillWidth: true
                 Layout.minimumHeight: 170
             }
@@ -112,6 +115,7 @@ Item {
         StatTile {
             theme: page.appRoot ? page.appRoot.theme : null
             label: "REGISTRY ENTRY"
+            iconSource: "../assets/icons/document.svg"
             Layout.fillWidth: true
             Layout.minimumHeight: 260
 
@@ -158,6 +162,7 @@ Item {
             GhostButton {
                 theme: page.appRoot ? page.appRoot.theme : null
                 text: "Close distribution"
+                iconSource: "../assets/icons/vault.svg"
                 enabled: page.currentAirdrop !== null
                 onClicked: {
                     if (appRoot && page.currentAirdrop) {

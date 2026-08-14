@@ -130,6 +130,7 @@ Item {
                 theme: page.appRoot ? page.appRoot.theme : null
                 accent: true
                 text: "Run sample claim"
+                iconSource: "../assets/icons/claim.svg"
                 busy: appRoot && appRoot.sampleRunning
                 busyText: appRoot && appRoot.sampleStatus !== "" ? appRoot.sampleStatus : "Running"
                 enabled: appRoot && appRoot.canClaim && !appRoot.sampleRunning
@@ -140,6 +141,7 @@ Item {
             GhostButton {
                 theme: page.appRoot ? page.appRoot.theme : null
                 text: "Open claim screen"
+                iconSource: "../assets/icons/claim.svg"
                 onClicked: if (appRoot) appRoot.screen = "claim"
             }
         }
@@ -148,6 +150,7 @@ Item {
             theme: page.appRoot ? page.appRoot.theme : null
             Layout.fillWidth: true
             Layout.minimumHeight: 380
+            iconSource: "../assets/icons/shield-check.svg"
 
             Stepper {
                 theme: page.appRoot ? page.appRoot.theme : null
@@ -182,6 +185,7 @@ Item {
         StatTile {
             theme: page.appRoot ? page.appRoot.theme : null
             label: "RECEIPT"
+            iconSource: "../assets/icons/document.svg"
             visible: appRoot && (appRoot.lastAirdropId !== "" || appRoot.lastClaimTxId !== "")
             Layout.fillWidth: true
             Layout.minimumHeight: 140

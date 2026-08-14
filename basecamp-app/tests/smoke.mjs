@@ -41,7 +41,7 @@ function rootPath(value) {
 }
 
 test("landing exposes the three normal-mode actions and reaches the claim screen", async (app) => {
-  await app.expectTexts(["DistributionX", "DISTRIBUTOR", "RECIPIENT", "Create distribution", "Claim distribution", "View distributions →"]);
+  await app.expectTexts(["DistributionX", "DISTRIBUTOR", "RECIPIENT", "Create distribution", "Claim distribution", "View distributions"]);
   await app.click("Claim distribution");
   await app.expectTexts(["Claim tokens", "Distribution", "Browse", "Use link", "Claim key", "Generate key", "Destination", "Balance", "STATUS", "Claim now"]);
   const prefilled = [];

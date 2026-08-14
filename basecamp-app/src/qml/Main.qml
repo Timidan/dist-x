@@ -16,6 +16,9 @@ Item {
     property string samplePendingJobId: ""
     property string samplePendingMarker: ""
     property string samplePendingOperation: ""
+    property string duplicateClaimJobId: ""
+    property string duplicateClaimStatus: ""
+    property bool duplicateClaimRunning: false
     property bool autoQuitAfterSample: false
     property string destinationMode: "external-wallet"
     property string distributionStateDir: "target/distributionx-testnet"
@@ -33,6 +36,7 @@ Item {
     readonly property string localnetRpcSuggestion: "http://127.0.0.1:3040"
     property string distributorAccount: ""
     property string configuredDistributorAccount: ""
+    property string payoutMode: "native"
     property string tokenId: ""
     property string tokenSourceAccount: ""
     property string recoveryAddress: ""
@@ -235,6 +239,7 @@ Item {
         distributorAccount = configuredDistributorAccount !== "" ? configuredDistributorAccount : distributorAccount
         tokenId = argumentValue("distributionx-token=", tokenId)
         tokenSourceAccount = argumentValue("distributionx-token-source=", tokenSourceAccount)
+        payoutMode = tokenSourceAccount !== "" ? "custom" : "native"
         recoveryAddress = argumentValue("distributionx-recovery=", recoveryAddress)
         fundAmount = argumentValue("distributionx-fund-amount=", fundAmount)
         expiryUnix = argumentValue("distributionx-expiry-unix=", expiryUnix)
@@ -259,6 +264,11 @@ Item {
         return "Testnet"
     }
 
+    function networkContextTitle() {
+        if (testnetRpc === "") return "Network not configured"
+        return isLocalRpc() ? "Local rehearsal" : "Public testnet"
+    }
+
     function shortPubkey(value) {
         var t = String(value || "")
         if (t === "") return ""
@@ -273,7 +283,8 @@ Item {
         items.push({ label: "RPC", value: testnetRpc !== "" ? "Connected" : "Missing", ok: testnetRpc !== "" })
         items.push({ label: "Distributor signer", value: distributorAccount !== "" ? "Configured" : "Missing", ok: distributorAccount !== "" })
         items.push({ label: "Token id", value: tokenId !== "" ? "Configured" : "Missing", ok: tokenId !== "" })
-        items.push({ label: "Custom-token source", value: tokenSourceAccount !== "" ? "Configured" : "Optional", ok: true })
+        var tokenSourceRequired = payoutMode === "custom"
+        items.push({ label: "Custom-token source", value: tokenSourceAccount !== "" ? "Configured" : (tokenSourceRequired ? "Missing" : "Not used"), ok: !tokenSourceRequired || tokenSourceAccount !== "" })
         items.push({ label: "Recovery account", value: recoveryAddress !== "" ? "Configured" : "Missing", ok: recoveryAddress !== "" })
         var relayerOk = relayerUrl !== "" && claimSubmitCommandConfigured
         var relayerValue = relayerUrl !== "" && claimSubmitCommandConfigured ? "Configured" : "Missing"
@@ -503,6 +514,7 @@ Item {
         lastClaimTxId = ""
         lastTokenSettlementTxId = ""
         lastClaimAmount = ""
+        duplicateClaimStatus = ""
         if (!sampleRunning) {
             sampleStatus = "Ready to claim"
             sampleError = ""
@@ -670,6 +682,12 @@ Item {
                 return "The selected bundle does not match this distribution."
             }
             return "This proof was generated for a different distribution. Generate a fresh proof for the selected distribution."
+        }
+        if (text.indexOf("E_RISC0_PROVE") !== -1 && text.indexOf("Some(125)") !== -1) {
+            return "Docker could not start the proof finalizer. Close Basecamp, restart DistributionX with the launcher, then retry. Your claim was not submitted."
+        }
+        if (text.indexOf("E_RISC0_PROVE") !== -1) {
+            return "Private proof generation failed before submission. Check the Risc0 and Docker setup, then retry."
         }
         if (text.indexOf("E_RECEIPT_JOURNAL_MISMATCH") !== -1) {
             return "The proof receipt does not match the claim data. Generate a fresh proof."
@@ -908,9 +926,10 @@ Item {
             claimantWalletError = ""
         } else if (actionJobKind === "tokenId") {
             tokenId = parsed.token_id
-            distributorStatus = "Token id ready"
+            distributorStatus = payoutMode === "native" ? "Native asset label ready" : "Token id ready"
             distributorError = ""
         } else if (actionJobKind === "mintToken") {
+            payoutMode = "custom"
             tokenId = parsed.token_id
             tokenSourceAccount = parsed.supply_account_id
             distributorStatus = "Token minted"
@@ -947,6 +966,12 @@ Item {
         if (testnetRpc === "" || distributorAccount === "" || tokenId === "" || recoveryAddress === "" || eligibilityCsvPath === "") {
             distributorStatus = "Setup failed"
             distributorError = "Configuration error: set LEZ_RPC_URL, LEZ_DEPLOYER_WALLET, DISTRIBUTIONX_TOKEN_ID, DISTRIBUTIONX_RECOVERY_ADDRESS, and the eligibility CSV path."
+            sampleError = distributorError
+            return false
+        }
+        if (payoutMode === "custom" && tokenSourceAccount === "") {
+            distributorStatus = "Setup failed"
+            distributorError = "Custom token mode requires a token supply account. Mint a token or paste its source account."
             sampleError = distributorError
             return false
         }
@@ -1030,9 +1055,36 @@ Item {
         return true
     }
 
-    function generateTestTokenId() {
+    function generateNativeTokenId() {
         distributorError = ""
-        return startActionJob("tokenId", "creating token id", "startTokenId", [airdropName !== "" ? airdropName + "-token" : "test-token"], "TOKEN_ID_OK")
+        distributorStatus = "Creating native asset label"
+        return startActionJob("tokenId", "creating native asset label", "startTokenId", [airdropName !== "" ? airdropName + "-compatibility-token" : "native-lez-compatibility-token"], "TOKEN_ID_OK")
+    }
+
+    function ensureNativePayoutReady() {
+        if (payoutMode !== "native") return true
+        tokenSourceAccount = ""
+        if (tokenId !== "") return true
+        if (actionRunning) return false
+        return generateNativeTokenId()
+    }
+
+    function selectNativePayout() {
+        if (actionRunning) return false
+        payoutMode = "native"
+        tokenId = ""
+        tokenSourceAccount = ""
+        return ensureNativePayoutReady()
+    }
+
+    function selectCustomPayout() {
+        if (actionRunning) return false
+        payoutMode = "custom"
+        tokenId = ""
+        tokenSourceAccount = ""
+        distributorStatus = "Custom token selected"
+        distributorError = ""
+        return true
     }
 
     function mintTokenSupply() {
@@ -1544,6 +1596,64 @@ Item {
         return true
     }
 
+    function submitClaimAnyway() {
+        if (!claimAlreadyClaimed() || duplicateClaimRunning || sampleRunning) return false
+        if (serializedLezTxPath === "") {
+            duplicateClaimStatus = "Claim transaction file is not configured."
+            return false
+        }
+
+        duplicateClaimStatus = "Submitting the same claim again..."
+        var response = callClient("startClaim", [
+            claimAirdropName(),
+            distributionStateDir + "/proof.json",
+            relayerUrl,
+            serializedLezTxPath
+        ])
+        var parsed = parseClientJson(response)
+        if (!responseHas(response, "JOB_STARTED") || !parsed || !parsed.job_id) {
+            duplicateClaimStatus = friendlyError(response)
+            console.warn("DISTRIBUTIONX_DUPLICATE_CLAIM_ERROR", String(response))
+            return false
+        }
+
+        duplicateClaimJobId = String(parsed.job_id)
+        duplicateClaimRunning = true
+        console.log("DISTRIBUTIONX_DUPLICATE_CLAIM_ATTEMPT")
+        duplicateClaimJobTimer.restart()
+        return true
+    }
+
+    function pollDuplicateClaimJob() {
+        if (!duplicateClaimRunning || duplicateClaimJobId === "") {
+            duplicateClaimJobTimer.stop()
+            return
+        }
+
+        var response = callClient("jobStatus", [duplicateClaimJobId])
+        if (responseHas(response, "JOB_RUNNING")) return
+
+        duplicateClaimJobTimer.stop()
+        var parsed = parseClientJson(response)
+        var output = parsed && parsed.output !== undefined ? String(parsed.output) : String(response)
+        duplicateClaimJobId = ""
+        duplicateClaimRunning = false
+
+        if (responseHas(output, "E_ALREADY_CLAIMED")) {
+            duplicateClaimStatus = "E_ALREADY_CLAIMED · duplicate rejected"
+            console.warn("DISTRIBUTIONX_DUPLICATE_CLAIM_REJECTED E_ALREADY_CLAIMED")
+            return
+        }
+        if (responseHas(output, "CLAIM_OK")) {
+            duplicateClaimStatus = "Unexpected: duplicate claim was accepted."
+            console.error("DISTRIBUTIONX_DUPLICATE_CLAIM_UNEXPECTEDLY_ACCEPTED")
+            return
+        }
+
+        duplicateClaimStatus = friendlyError(output)
+        console.warn("DISTRIBUTIONX_DUPLICATE_CLAIM_ERROR", output)
+    }
+
     Component.onCompleted: {
         configureFromArguments()
         Qt.callLater(refreshAirdropsUntilReady)
@@ -1567,6 +1677,13 @@ Item {
         interval: 1000
         repeat: true
         onTriggered: root.pollSampleJob()
+    }
+
+    Timer {
+        id: duplicateClaimJobTimer
+        interval: 250
+        repeat: true
+        onTriggered: root.pollDuplicateClaimJob()
     }
 
     Timer {

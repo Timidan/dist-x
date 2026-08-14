@@ -4,7 +4,7 @@ Item {
     id: root
     property var theme
     property string folio: ""
-    property string mark: "L"
+    property string mark: "DistributionX"
     default property alias rightContent: rightSlot.data
     property bool sealVisible: true
     property bool backVisible: false
@@ -60,11 +60,13 @@ Item {
             Behavior on scale { NumberAnimation { duration: root.theme ? root.theme.durFast : 120 } }
         }
 
-        Seal {
+        Image {
             visible: root.sealVisible
-            theme: root.theme
-            mark: root.mark
-            sizePx: 22
+            width: 22
+            height: 22
+            source: "../assets/icons/distributionx-mark.svg"
+            fillMode: Image.PreserveAspectFit
+            smooth: true
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {

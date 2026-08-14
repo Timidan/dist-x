@@ -64,6 +64,7 @@ Item {
         if (appRoot.airdropName === "") return "Distribution name is required before Initialize."
         if (appRoot.distributorAccount === "") return "Signer account is required before Initialize."
         if (appRoot.tokenId === "") return "Token id is required before Initialize."
+        if (appRoot.payoutMode === "custom" && appRoot.tokenSourceAccount === "") return "Custom token mode requires a token supply account."
         if (appRoot.testnetRpc === "") return "RPC URL is required before Initialize."
         if (appRoot.recoveryAddress === "") return "Recovery account is required before Initialize."
         return ""
@@ -194,7 +195,8 @@ Item {
                     Layout.topMargin: 8
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
-                        text: "← Back"
+                        text: "Back"
+                        iconSource: "../assets/icons/arrow-left.svg"
                         enabled: page.step > 1
                         onClicked: if (page.step > 1) page.step--
                     }
@@ -202,7 +204,8 @@ Item {
                     PrimaryButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         accent: true
-                        text: page.step < 4 ? "Continue →" : "Open monitor"
+                        text: page.step < 4 ? "Continue" : "Open monitor"
+                        iconSource: page.step < 4 ? "../assets/icons/arrow-right.svg" : "../assets/icons/document.svg"
                         enabled: page.canContinue()
                         onClicked: {
                             if (page.step < 4) page.step++
@@ -240,6 +243,7 @@ Item {
                 GhostButton {
                     theme: page.appRoot ? page.appRoot.theme : null
                     text: "Use local signer"
+                    iconSource: "../assets/icons/wallet.svg"
                     enabled: appRoot && appRoot.configuredDistributorAccount !== ""
                     onClicked: Qt.callLater(function() { if (appRoot) appRoot.useConfiguredDistributor() })
                 }
@@ -270,6 +274,41 @@ Item {
                         paddingH: 10
                         text: "Localnet 127.0.0.1:3040"
                         onClicked: page.applyRpcSuggestion(rpcField, appRoot ? appRoot.localnetRpcSuggestion : "http://127.0.0.1:3040")
+                    }
+                }
+                Rectangle {
+                    width: parent.width
+                    height: networkContext.implicitHeight + 20
+                    radius: appRoot ? appRoot.theme.rMd : 10
+                    color: appRoot ? appRoot.theme.surfaceSubtle : "#EFE9DD"
+                    border.width: 1
+                    border.color: appRoot && appRoot.isLocalRpc() ? appRoot.theme.line : (appRoot ? appRoot.theme.accent : "#9F1239")
+
+                    Column {
+                        id: networkContext
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 4
+
+                        Text {
+                            width: parent.width
+                            text: appRoot ? appRoot.networkContextTitle() : "Network not configured"
+                            color: appRoot ? appRoot.theme.fg : "#0F172A"
+                            font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            text: "Changing this URL does not switch the wallet or deployment profile."
+                            wrapMode: Text.WordWrap
+                            color: appRoot ? appRoot.theme.fg2 : "#475569"
+                            font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
+                            font.pixelSize: 12
+                        }
                     }
                 }
                 ToastBanner {
@@ -313,6 +352,85 @@ Item {
                     mono: false
                     onTextChanged: if (appRoot) appRoot.airdropName = text
                 }
+                Text {
+                    width: parent.width
+                    text: "Payout asset"
+                    color: appRoot ? appRoot.theme.fg3 : "#94A3B8"
+                    font.pixelSize: 11
+                    font.letterSpacing: 1.6
+                    font.capitalization: Font.AllUppercase
+                    font.family: appRoot ? appRoot.theme.fontMono : "monospace"
+                }
+                Flow {
+                    width: parent.width
+                    spacing: 8
+                    GhostButton {
+                        theme: page.appRoot ? page.appRoot.theme : null
+                        text: "Native LEZ"
+                        iconSource: "../assets/icons/native-lez-placeholder.svg"
+                        enabled: appRoot && !appRoot.actionRunning && appRoot.payoutMode !== "native"
+                        onClicked: Qt.callLater(function() { if (appRoot) appRoot.selectNativePayout() })
+                    }
+                    GhostButton {
+                        theme: page.appRoot ? page.appRoot.theme : null
+                        text: "Custom token"
+                        iconSource: "../assets/icons/token-stack.svg"
+                        enabled: appRoot && !appRoot.actionRunning && appRoot.payoutMode !== "custom"
+                        onClicked: Qt.callLater(function() { if (appRoot) appRoot.selectCustomPayout() })
+                    }
+                }
+                Rectangle {
+                    width: parent.width
+                    height: payoutContext.implicitHeight + 20
+                    radius: appRoot ? appRoot.theme.rMd : 10
+                    color: appRoot ? appRoot.theme.surfaceSubtle : "#EFE9DD"
+
+                    Column {
+                        id: payoutContext
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 4
+                        Text {
+                            width: parent.width
+                            text: appRoot && appRoot.payoutMode === "custom" ? "Custom token settlement" : "Native LEZ payout"
+                            color: appRoot ? appRoot.theme.fg : "#0F172A"
+                            font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            width: parent.width
+                            text: appRoot && appRoot.payoutMode === "custom"
+                                ? "Mint or provide a fungible token supply account for the separate settlement transaction."
+                                : "No custom token is minted. DistributionX funds the native LEZ pool."
+                            wrapMode: Text.WordWrap
+                            color: appRoot ? appRoot.theme.fg2 : "#475569"
+                            font.family: appRoot ? appRoot.theme.fontBody : "sans-serif"
+                            font.pixelSize: 12
+                        }
+                        Text {
+                            width: parent.width
+                            visible: appRoot && appRoot.payoutMode === "native"
+                            text: appRoot && appRoot.tokenId !== "" ? "Native asset label ready" : "Native asset label required"
+                            color: appRoot ? appRoot.theme.fg2 : "#475569"
+                            font.family: appRoot ? appRoot.theme.fontMono : "monospace"
+                            font.pixelSize: 11
+                        }
+                        GhostButton {
+                            theme: page.appRoot ? page.appRoot.theme : null
+                            visible: appRoot && appRoot.payoutMode === "native" && appRoot.tokenId === ""
+                            text: "Generate native label"
+                            iconSource: "../assets/icons/document.svg"
+                            busy: appRoot && appRoot.isOperation("creating native asset label")
+                            busyText: "Generating"
+                            enabled: appRoot && !appRoot.actionRunning
+                            onClicked: Qt.callLater(function() { if (appRoot) appRoot.ensureNativePayoutReady() })
+                        }
+                    }
+                }
                 RowLayout {
                     width: parent.width
                     spacing: 10
@@ -334,6 +452,7 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Browse…"
+                        iconSource: "../assets/icons/folder.svg"
                         enabled: !(appRoot && appRoot.csvValidationRunning)
                         onClicked: eligibilityCsvDialog.open()
                     }
@@ -341,6 +460,7 @@ Item {
                 RowLayout {
                     width: parent.width
                     spacing: 10
+                    visible: appRoot && appRoot.payoutMode === "custom"
                     Field {
                         theme: page.appRoot ? page.appRoot.theme : null
                         Layout.fillWidth: true
@@ -352,6 +472,7 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Mint token"
+                        iconSource: "../assets/icons/mint.svg"
                         busy: appRoot && appRoot.isOperation("minting token")
                         busyText: "Minting"
                         enabled: appRoot && !appRoot.actionRunning
@@ -361,8 +482,9 @@ Item {
                 Field {
                     theme: page.appRoot ? page.appRoot.theme : null
                     width: parent.width
-                    label: "Custom-token source account (optional)"
-                    placeholder: "Leave blank for native-token payout only"
+                    visible: appRoot && appRoot.payoutMode === "custom"
+                    label: "Custom-token source account"
+                    placeholder: "Public/... supply holding account"
                     text: appRoot ? appRoot.tokenSourceAccount : ""
                     onTextChanged: if (appRoot) appRoot.tokenSourceAccount = text
                 }
@@ -380,6 +502,7 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Generate sample CSV"
+                        iconSource: "../assets/icons/document.svg"
                         busy: appRoot && appRoot.isOperation("preparing sample csv")
                         busyText: "Generating"
                         enabled: appRoot && !appRoot.actionRunning && !appRoot.csvValidationRunning
@@ -390,6 +513,7 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Validate CSV"
+                        iconSource: "../assets/icons/check-circle.svg"
                         busy: appRoot && appRoot.csvValidationRunning
                         busyText: "Checking"
                         enabled: appRoot && !appRoot.csvValidationRunning && !appRoot.actionRunning
@@ -401,6 +525,7 @@ Item {
                         theme: page.appRoot ? page.appRoot.theme : null
                         accent: true
                         text: "Initialize"
+                        iconSource: "../assets/icons/distribution.svg"
                         busy: appRoot && appRoot.isOperation("initializing the distribution")
                         busyText: "Initializing"
                         enabled: appRoot
@@ -412,6 +537,7 @@ Item {
                             && appRoot.airdropName !== ""
                             && appRoot.distributorAccount !== ""
                             && appRoot.tokenId !== ""
+                            && (appRoot.payoutMode !== "custom" || appRoot.tokenSourceAccount !== "")
                             && appRoot.testnetRpc !== ""
                             && appRoot.recoveryAddress !== ""
                         onClicked: Qt.callLater(function() {
@@ -526,6 +652,7 @@ Item {
             label: "DISTRIBUTION POOL"
             value: appRoot ? appRoot.fundAmount + " tokens" : "Tokens"
             sub: appRoot ? appRoot.distributorStatus : "Awaiting signed transaction"
+            iconSource: "../assets/icons/vault.svg"
             Column {
                 width: parent.width
                 spacing: 10
@@ -556,6 +683,7 @@ Item {
                 GhostButton {
                     theme: page.appRoot ? page.appRoot.theme : null
                     text: "Use distribution total"
+                    iconSource: "../assets/icons/token-stack.svg"
                     enabled: appRoot && appRoot.lastCsvInspection !== null && !appRoot.actionRunning
                     onClicked: {
                         if (appRoot && appRoot.lastCsvInspection) {
@@ -567,6 +695,7 @@ Item {
                     theme: page.appRoot ? page.appRoot.theme : null
                     accent: true
                     text: "Sign deposit"
+                    iconSource: "../assets/icons/vault.svg"
                     busy: appRoot && appRoot.isOperation("funding the distribution")
                     busyText: "Funding"
                     enabled: appRoot
@@ -633,6 +762,7 @@ Item {
             label: "CLAIM LINK"
             value: "Ready to share"
             sub: appRoot ? appRoot.shareClaimLink() + " · share with eligible recipients" : ""
+            iconSource: "../assets/icons/link.svg"
             implicitHeight: 160
         }
     }

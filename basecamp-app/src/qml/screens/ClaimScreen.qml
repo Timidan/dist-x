@@ -11,6 +11,14 @@ Item {
     readonly property bool alreadyClaimed: appRoot && appRoot.claimAlreadyClaimed()
     readonly property bool claimRejected: appRoot && appRoot.claimEligibilityStatus === "rejected"
 
+    function claimStatusIcon() {
+        if (page.alreadyClaimed) return "../assets/icons/check-circle.svg"
+        if (page.claimRejected) return "../assets/icons/alert-circle.svg"
+        if (appRoot && appRoot.claimEligibilityStatus === "checking") return "../assets/icons/clock.svg"
+        if (appRoot && appRoot.claimEligibilityOk) return "../assets/icons/shield-check.svg"
+        return "../assets/icons/shield.svg"
+    }
+
     FileDialog {
         id: walletSeedDialog
         fileMode: FileDialog.OpenFile
@@ -107,11 +115,13 @@ Item {
                         GhostButton {
                             theme: page.appRoot ? page.appRoot.theme : null
                             text: "Browse"
+                            iconSource: "../assets/icons/folder.svg"
                             onClicked: bundleDialog.open()
                         }
                         GhostButton {
                             theme: page.appRoot ? page.appRoot.theme : null
                             text: page.showClaimLink ? "Hide link" : "Use link"
+                            iconSource: "../assets/icons/link.svg"
                             onClicked: page.showClaimLink = !page.showClaimLink
                         }
                     }
@@ -133,6 +143,7 @@ Item {
                         GhostButton {
                             theme: page.appRoot ? page.appRoot.theme : null
                             text: "Load"
+                            iconSource: "../assets/icons/link.svg"
                             onClicked: if (appRoot) appRoot.applyClaimLink(distributionLink.text)
                         }
                     }
@@ -166,6 +177,7 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Generate key"
+                        iconSource: "../assets/icons/key.svg"
                         busy: appRoot && appRoot.isOperation("creating claim key")
                         busyText: "Creating"
                         enabled: appRoot && !appRoot.actionRunning && !appRoot.sampleRunning
@@ -176,11 +188,13 @@ Item {
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Browse"
+                        iconSource: "../assets/icons/folder.svg"
                         onClicked: walletSeedDialog.open()
                     }
                     GhostButton {
                         theme: page.appRoot ? page.appRoot.theme : null
                         text: "Refresh"
+                        iconSource: "../assets/icons/refresh.svg"
                         onClicked: if (appRoot) appRoot.refreshClaimantPubkey()
                     }
                 }
@@ -227,6 +241,7 @@ Item {
                         GhostButton {
                             theme: page.appRoot ? page.appRoot.theme : null
                             text: "Load"
+                            iconSource: "../assets/icons/shield.svg"
                             onClicked: Qt.callLater(function() {
                                 if (appRoot) appRoot.loadDestinationPacket(destinationPath.text)
                             })
@@ -270,6 +285,7 @@ Item {
                         GhostButton {
                             theme: page.appRoot ? page.appRoot.theme : null
                             text: "Refresh"
+                            iconSource: "../assets/icons/refresh.svg"
                             enabled: appRoot && !appRoot.sampleRunning
                             onClicked: if (appRoot) appRoot.refreshClaimPage()
                         }
@@ -392,6 +408,7 @@ Item {
                     : appRoot && appRoot.claimEligibilityStatus === "checking" ? "Checking"
                     : page.claimRejected ? "Not claimable"
                     : "Not checked"
+                iconSource: page.alreadyClaimed ? "" : page.claimStatusIcon()
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: 300
                 Layout.minimumHeight: 310
@@ -471,6 +488,7 @@ Item {
                         theme: page.appRoot ? page.appRoot.theme : null
                         accent: true
                         text: page.alreadyClaimed ? "Already claimed" : "Claim now"
+                        iconSource: page.alreadyClaimed ? "../assets/icons/check-circle.svg" : "../assets/icons/shield-check.svg"
                         busy: appRoot && appRoot.sampleRunning
                         busyText: appRoot && appRoot.sampleStatus !== "" ? appRoot.sampleStatus : "Claiming"
                         width: parent.width
@@ -478,6 +496,36 @@ Item {
                         onClicked: Qt.callLater(function() {
                             if (appRoot) appRoot.claimCurrentDistribution()
                         })
+                    }
+
+                    Item {
+                        visible: page.alreadyClaimed
+                        width: parent.width
+                        height: visible ? 36 : 0
+
+                        GhostButton {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            theme: page.appRoot ? page.appRoot.theme : null
+                            text: "Submit claim anyway"
+                            iconSource: "../assets/icons/refresh.svg"
+                            busy: appRoot && appRoot.duplicateClaimRunning
+                            busyText: "Submitting again"
+                            enabled: appRoot && !appRoot.sampleRunning && !appRoot.duplicateClaimRunning
+                            onClicked: if (appRoot) appRoot.submitClaimAnyway()
+                        }
+                    }
+
+                    Text {
+                        visible: page.alreadyClaimed && appRoot && appRoot.duplicateClaimStatus !== ""
+                        width: parent.width
+                        text: appRoot ? appRoot.duplicateClaimStatus : ""
+                        color: appRoot && appRoot.duplicateClaimStatus.indexOf("E_ALREADY_CLAIMED") !== -1
+                            ? appRoot.theme.success
+                            : (appRoot ? appRoot.theme.fg2 : "#475569")
+                        font.family: appRoot ? appRoot.theme.fontMono : "monospace"
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

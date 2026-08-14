@@ -21,8 +21,10 @@ grep -Fq 'clientModuleReady = true' "${MAIN_QML}" \
   || fail "a successful registry API response does not mark the client ready"
 grep -Fq 'label: "Custom-token source"' "${MAIN_QML}" \
   || fail "readiness does not label custom-token settlement separately"
-grep -Fq 'value: tokenSourceAccount !== "" ? "Configured" : "Optional", ok: true' "${MAIN_QML}" \
-  || fail "readiness still blocks when custom-token settlement is absent"
+grep -Fq 'var tokenSourceRequired = payoutMode === "custom"' "${MAIN_QML}" \
+  || fail "readiness does not distinguish native and custom-token payout modes"
+grep -Fq 'ok: !tokenSourceRequired || tokenSourceAccount !== ""' "${MAIN_QML}" \
+  || fail "readiness does not require a source only for custom-token mode"
 
 if grep -Fq 'if (tokenSourceAccount === "") missing.push("DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT")' "${MAIN_QML}"; then
   fail "testnet configuration still requires a custom-token source"
@@ -33,11 +35,10 @@ fi
 if grep -Fq 'if (appRoot.tokenSourceAccount === "") return "Token source account is required before Initialize."' "${WIZARD_QML}"; then
   fail "the distributor wizard still blocks without custom-token settlement"
 fi
-grep -Fq 'label: "Custom-token source account (optional)"' "${WIZARD_QML}" \
-  || fail "the distributor wizard does not present custom-token settlement as optional"
-if grep -Fq '&& appRoot.tokenSourceAccount !== ""' "${WIZARD_QML}"; then
-  fail "the Initialize button still requires a custom-token source"
-fi
+grep -Fq 'visible: appRoot && appRoot.payoutMode === "custom"' "${WIZARD_QML}" \
+  || fail "the distributor wizard exposes custom-token controls in native mode"
+grep -Fq '&& (appRoot.payoutMode !== "custom" || appRoot.tokenSourceAccount !== "")' "${WIZARD_QML}" \
+  || fail "the Initialize button does not enforce the selected payout mode"
 grep -Fq 'if (!appRoot.customTokenSettlementConfigured()) return true' "${WIZARD_QML}" \
   || fail "native distribution-pool funding still requires a custom-token balance"
 grep -Fq 'return "Native distribution pool funding"' "${WIZARD_QML}" \

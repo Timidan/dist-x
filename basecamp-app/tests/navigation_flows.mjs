@@ -22,7 +22,7 @@ function frameworkPath() {
 const { test, run } = await import(frameworkPath());
 
 test("primary UI flows are reachable", async (app) => {
-  await app.expectTexts(["DistributionX", "Create distribution", "Claim distribution", "View distributions →"]);
+  await app.expectTexts(["DistributionX", "Create distribution", "Claim distribution", "View distributions"]);
 
   await app.click("Create distribution");
   await app.expectTexts(["Distributor signing account", "Use local signer", "RPC suggestions"]);
@@ -37,7 +37,7 @@ test("primary UI flows are reachable", async (app) => {
   await app.click("←");
   await app.expectTexts(["DistributionX", "Create distribution"]);
 
-  await app.click("View distributions →");
+  await app.click("View distributions");
   await app.expectTexts(["DISTRIBUTION", "CLAIMED TOKENS", "POOL REMAINING", "REGISTRY ENTRY"]);
 });
 

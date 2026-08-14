@@ -76,6 +76,7 @@ Column {
 
                     Text {
                         anchors.centerIn: parent
+                        visible: modelData.status !== "done" && modelData.status !== "error"
                         text: root.numerals === "roman" ? root._romanize(index + 1) : String(index + 1)
                         font.pixelSize: root.numerals === "roman" ? 12 : 11
                         font.italic: root.numerals === "roman"
@@ -87,6 +88,17 @@ Column {
                             : modelData.status === "error"
                             ? (root.theme ? root.theme.danger : "#B91C1C")
                             : (root.theme ? root.theme.fg2 : "#475569")
+                    }
+                    Image {
+                        anchors.centerIn: parent
+                        visible: modelData.status === "done" || modelData.status === "error"
+                        width: 14
+                        height: 14
+                        source: modelData.status === "done"
+                            ? "../assets/icons/check-circle.svg"
+                            : "../assets/icons/alert-circle.svg"
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
                     }
                 }
 

@@ -6,6 +6,7 @@ Rectangle {
     property string label: ""
     property string value: ""
     property string sub: ""
+    property string iconSource: ""
     default property alias content: extra.data
 
     color: theme ? theme.surface : "#FFFFFF"
@@ -14,6 +15,19 @@ Rectangle {
     radius: theme ? theme.rLg : 14
 
     implicitHeight: layoutCol.implicitHeight + 36
+
+    Image {
+        visible: root.iconSource.length > 0
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 16
+        anchors.rightMargin: 16
+        width: 20
+        height: 20
+        source: root.iconSource
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+    }
 
     Column {
         id: layoutCol

@@ -30,9 +30,24 @@ Rectangle {
     height: visible ? 44 : 0
     Behavior on opacity { NumberAnimation { duration: theme ? theme.durBase : 220 } }
 
+    Image {
+        anchors.left: parent.left
+        anchors.leftMargin: 13
+        anchors.verticalCenter: parent.verticalCenter
+        width: 16
+        height: 16
+        source: root.tone === "success"
+            ? "../assets/icons/check-circle.svg"
+            : root.tone === "error"
+            ? "../assets/icons/alert-circle.svg"
+            : "../assets/icons/clock.svg"
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+    }
+
     Text {
         anchors.fill: parent
-        anchors.leftMargin: 14
+        anchors.leftMargin: 40
         anchors.rightMargin: 14
         text: root.message
         color: root.fgColor

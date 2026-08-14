@@ -35,20 +35,49 @@ async function expectAnyText(app, texts, description) {
   }, { timeout: 30000, interval: 500, description });
 }
 
-test("distributor setup exposes the normal signer token and CSV controls", async (app) => {
+test("distributor setup makes the network context and payout asset explicit", async (app) => {
   await app.expectTexts(["DistributionX", "Create distribution"]);
   await app.click("Create distribution");
   await app.expectTexts(["Use local signer", "RPC suggestions", "Localnet 127.0.0.1:3040"]);
+  await app.click("Localnet 127.0.0.1:3040");
+  await app.expectTexts([
+    "Local rehearsal",
+    "Changing this URL does not switch the wallet or deployment profile."
+  ]);
   if (process.env.DISTRIBUTIONX_TEST_HELPERS === "1") {
     await app.click("Use local signer");
     await expectAnyText(app, ["Local signer selected"], "signer helper result");
   }
   await app.click("Continue");
-  await app.expectTexts(["Distribution name", "Eligibility CSV", "Mint token", "Custom-token source account (optional)", "Generate sample CSV", "Validate CSV", "Initialize"]);
+  await app.expectTexts([
+    "Distribution name",
+    "Eligibility CSV",
+    "Payout asset",
+    "Native LEZ",
+    "Custom token",
+    "Native LEZ payout",
+    "No custom token is minted. DistributionX funds the native LEZ pool.",
+    "Native asset label required",
+    "Generate native label",
+    "Generate sample CSV",
+    "Validate CSV",
+    "Initialize"
+  ]);
+  await app.click("Custom token");
+  await app.expectTexts([
+    "Custom token settlement",
+    "Mint token",
+    "Custom-token source account"
+  ]);
   if (process.env.DISTRIBUTIONX_TEST_HELPERS === "1") {
     await app.click("Mint token");
     await expectAnyText(app, ["Token minted"], "token helper result");
   }
+  await app.click("Native LEZ");
+  await app.expectTexts([
+    "Native LEZ payout",
+    "No custom token is minted. DistributionX funds the native LEZ pool."
+  ]);
 });
 
 run();

@@ -279,6 +279,64 @@ restore_installed_core_manifest() {
   log "Added portable Basecamp compatibility to the installed core manifest"
 }
 
+ensure_native_token_label() {
+  if [[ -n "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT:-}" || -n "${DISTRIBUTIONX_TOKEN_ID:-}" ]]; then
+    return
+  fi
+
+  local cli=""
+  local candidate
+  for candidate in \
+    "${DISTRIBUTIONX_CLI:-}" \
+    "${ROOT}/target/release/distributionx-cli" \
+    "${USER_DIR}/modules/distributionx_client/distributionx-cli"; do
+    if [[ -n "${candidate}" && -x "${candidate}" ]]; then
+      cli="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${cli}" ]]; then
+    log "Native LEZ selected; Basecamp will generate its internal asset label"
+    return
+  fi
+
+  local output token_id
+  output="$(RISC0_DEV_MODE=0 "${cli}" token-id \
+    --name "${DISTRIBUTIONX_AIRDROP_NAME:-demo-airdrop}-compatibility-token")"
+  token_id="$(jq -r 'if .status == "TOKEN_ID_OK" and .registered == false then .token_id // empty else empty end' <<<"${output}")"
+  if [[ -z "${token_id}" ]]; then
+    echo "E_DISTRIBUTIONX_NATIVE_TOKEN_LABEL: CLI did not return an offline compatibility label" >&2
+    return 2
+  fi
+  export DISTRIBUTIONX_TOKEN_ID="${token_id}"
+  log "Native LEZ payout selected; internal asset label prepared"
+}
+
+prepare_risc0_docker() {
+  local real_docker
+  real_docker="$(type -P docker || true)"
+  if [[ -z "${real_docker}" || "${real_docker}" != /* || ! -x "${real_docker}" ]]; then
+    echo "E_DISTRIBUTIONX_DOCKER_MISSING: Docker is required for real Risc0 proofs" >&2
+    return 2
+  fi
+
+  if ! "${real_docker}" info >/dev/null 2>&1; then
+    if env -u DOCKER_HOST DOCKER_CONTEXT=default "${real_docker}" info >/dev/null 2>&1; then
+      unset DOCKER_HOST
+      export DOCKER_CONTEXT=default
+      log "Selected healthy Docker context: default"
+    else
+      echo "E_DISTRIBUTIONX_DOCKER_UNAVAILABLE: neither the selected nor default Docker daemon is available" >&2
+      return 2
+    fi
+  fi
+
+  bash "${ROOT}/scripts/docker-preflight.sh"
+  export DISTRIBUTIONX_REAL_DOCKER="${real_docker}"
+  export PATH="${ROOT}/scripts/risc0-docker-bin:${PATH}"
+  log "Risc0 Docker finalizer ready with network disabled"
+}
+
 if [[ -r "${ENV_FILE}" ]]; then
   log "Loading ${ENV_FILE}"
   set -a
@@ -363,6 +421,7 @@ if [[ "${INSTALL}" -eq 1 ]]; then
 fi
 restore_installed_ui_manifest
 restore_installed_core_manifest
+ensure_native_token_label
 
 APP_ARGS=()
 if [[ -n "${LEZ_RPC_URL:-}" ]]; then
@@ -438,4 +497,5 @@ if [[ "${NO_LAUNCH}" -eq 1 ]]; then
   exit 0
 fi
 
+prepare_risc0_docker
 exec "${LAUNCH_CMD[@]}"
