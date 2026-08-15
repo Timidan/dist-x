@@ -72,7 +72,6 @@ run_tracked_check() {
     "README.md"
     "DistributionX.system-architecture.excalidraw"
     "docs/TESTNET_EVIDENCE.md"
-    "docs/demo-video-script.md"
     "docs/RC5_PPE_HANDOFF.md"
     # Sentinel for the committed testnet verification artifacts: if docs/testnet-evidence/
     # gets re-gitignored, the submission's evidence links break — fail loudly here.

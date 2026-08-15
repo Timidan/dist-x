@@ -46,7 +46,6 @@ docs/
 docs/*
 !docs/WRITEUP.md
 !docs/TESTNET_EVIDENCE.md
-!docs/demo-video-script.md
 !docs/RC5_PPE_HANDOFF.md
 !docs/bench/
 docs/bench/*

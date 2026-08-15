@@ -7,7 +7,6 @@ WIZARD_QML="${ROOT}/basecamp-app/src/qml/screens/DistributorWizard.qml"
 LOAD_SMOKE="${ROOT}/scripts/lgx-load-smoke.sh"
 LOAD_PROBE="${ROOT}/scripts/lgx-load-probe.mjs"
 README="${ROOT}/README.md"
-VIDEO_SCRIPT="${ROOT}/docs/demo-video-script.md"
 RC5_HANDOFF="${ROOT}/docs/RC5_PPE_HANDOFF.md"
 
 fail() {
@@ -78,14 +77,6 @@ grep -Fq 'unset DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT' "${README}" \
   || fail "the operator handoff does not clear inherited custom-token state"
 grep -Fq 'The publishable output is only' "${README}" \
   || fail "the operator handoff does not isolate witness-free public evidence"
-
-grep -Fq '`claim_ppe`, not `claim_private`, is shown and named' "${VIDEO_SCRIPT}" \
-  || fail "the video checklist does not require the shipping PPE path"
-grep -Fq 'local claimant' "${VIDEO_SCRIPT}" \
-  || fail "the video checklist overstates the demonstrated duplicate rejection"
-if grep -Eq 'bash scripts/e2e\.sh (basecamp|localnet)' "${VIDEO_SCRIPT}"; then
-  fail "the video checklist still uses removed e2e entry points"
-fi
 
 grep -Fq 'Historical only. Do not follow this file as an operator runbook.' "${RC5_HANDOFF}" \
   || fail "the rc5 handoff is not prominently archived"
