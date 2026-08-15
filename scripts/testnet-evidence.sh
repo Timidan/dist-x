@@ -137,7 +137,7 @@ rpc_get() {
   local tx="$1" response
   is_hex64 "${tx}" || die "invalid transaction hash: ${tx}"
   response="$(curl --fail-with-body --silent --show-error --max-time 20 --header 'content-type: application/json' --data "$(jq -nc --arg hash "${tx}" '{jsonrpc:"2.0",id:1,method:"getTransaction",params:[$hash]}')" "${LEZ_RPC_URL}")" || die "getTransaction failed for ${tx}"
-  jq -e '.error == null and (.result | type == "array" and length == 2 and .[0] != null and (.[1] | type == "number"))' >/dev/null <<<"${response}" || die "getTransaction did not return an included tuple for ${tx}"
+  jq -e '.error == null and (.result | type == "array" and length == 2 and .[0] != null and (.[1] | type == "number") and ((.[0] | type == "object") or ((.[0] | type == "string") and (.[0] | length > 0) and (.[0] | test("^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")))))' >/dev/null <<<"${response}" || die "getTransaction did not return an included tuple for ${tx}"
   printf '%s\n' "${response}"
 }
 check_tx() {
@@ -286,16 +286,23 @@ prepare() {
   printf 'prepared quote SHA-256: %s\n' "$(<"$(quote_digest_path)")"
 }
 require_quote() {
-  [[ $# -eq 1 ]] || die 'this phase requires the exact prepare quote SHA-256'
+  [[ $# -ge 1 && $# -le 2 ]] || die 'this phase requires the exact prepare quote SHA-256'
   require_runtime
-  local stored actual supplied current expected_identity cli_hash
+  local stored actual supplied current expected_identity cli_hash mode="${2:-write}" source tag_source
+  [[ "${mode}" == write || "${mode}" == verify ]] || die 'invalid quote verification mode'
   stored="$(<"$(quote_digest_path)")" || die 'prepare quote missing'; actual="$(sha256sum "$(quote_path)" | awk '{print $1}')"; supplied="${1,,}"
   is_hex64 "${stored}" && [[ "${stored}" == "${actual}" && "${actual}" == "${supplied}" ]] || die 'quote digest is not immutable or approved'
   current="$(fingerprint)"; check_fingerprint "${current}"; expected_identity="$(jq -cS '.rpc_fingerprint_identity' "$(quote_path)")"
   [[ "$(fingerprint_identity <<<"${current}")" == "${expected_identity}" ]] || die 'RPC/channel fingerprint changed'
   cli_hash="$(jq -er '.distributionx_cli_sha256 | select(test("^[0-9a-f]{64}$"))' "$(quote_path)")" || die 'quote has invalid distributionx-cli SHA-256'
   assert_cli_sha256 "${cli_hash}"
-  jq -e --arg source "$(git -C "${ROOT}" rev-parse HEAD)" --arg tag "${DISTRIBUTIONX_RELEASE_TAG}" --arg lez "${EXPECTED_LEZ_COMMIT}" --arg cli_sha256 "${cli_hash}" --arg rpc "${LEZ_RPC_URL}" --arg deployer "${LEZ_DEPLOYER_WALLET}" --arg token "${DISTRIBUTIONX_TOKEN_ID}" --arg expiry "${DISTRIBUTIONX_EXPIRY_UNIX}" --arg recovery "${DISTRIBUTIONX_RECOVERY_ADDRESS}" --arg relayer "${DISTRIBUTIONX_RELAYER_URL}" '.execution_source_commit == $source and .release_tag == $tag and .planned_release_tag == $tag and .lez_commit == $lez and .distributionx_cli_sha256 == $cli_sha256 and .rpc_url == $rpc and .deployer_wallet == $deployer and .token_id == $token and .expiry_unix == $expiry and .recovery_address == $recovery and .relayer_url == $relayer and .claim_amount_raw == 1 and .distribution_funding_raw == 10 and .write_counts == {smoke:5,finish:22,total:27} and .custom_token_settlement == false and .close == false and .deployer.already_funded_assumption == true and .deployer.initialization_or_funding_in_scope == false' "$(quote_path)" >/dev/null || die 'runtime differs from approved quote'
+  source="$(git -C "${ROOT}" rev-parse HEAD)"
+  if [[ "${mode}" == verify && "${source}" != "$(jq -r .execution_source_commit "$(quote_path)")" ]]; then
+    tag_source="$(git -C "${ROOT}" rev-parse --verify "${DISTRIBUTIONX_RELEASE_TAG}^{commit}")" || die 'quoted release tag is unavailable'
+    [[ "${tag_source}" == "$(jq -r .execution_source_commit "$(quote_path)")" ]] || die 'quoted release tag no longer resolves to execution source'
+    source="${tag_source}"
+  fi
+  jq -e --arg source "${source}" --arg tag "${DISTRIBUTIONX_RELEASE_TAG}" --arg lez "${EXPECTED_LEZ_COMMIT}" --arg cli_sha256 "${cli_hash}" --arg rpc "${LEZ_RPC_URL}" --arg deployer "${LEZ_DEPLOYER_WALLET}" --arg token "${DISTRIBUTIONX_TOKEN_ID}" --arg expiry "${DISTRIBUTIONX_EXPIRY_UNIX}" --arg recovery "${DISTRIBUTIONX_RECOVERY_ADDRESS}" --arg relayer "${DISTRIBUTIONX_RELAYER_URL}" '.execution_source_commit == $source and .release_tag == $tag and .planned_release_tag == $tag and .lez_commit == $lez and .distributionx_cli_sha256 == $cli_sha256 and .rpc_url == $rpc and .deployer_wallet == $deployer and .token_id == $token and .expiry_unix == $expiry and .recovery_address == $recovery and .relayer_url == $relayer and .claim_amount_raw == 1 and .distribution_funding_raw == 10 and .write_counts == {smoke:5,finish:22,total:27} and .custom_token_settlement == false and .close == false and .deployer.already_funded_assumption == true and .deployer.initialization_or_funding_in_scope == false' "$(quote_path)" >/dev/null || die 'runtime differs from approved quote'
 }
 
 run_deploy() {
@@ -347,18 +354,23 @@ smoke() { require_quote "$@"; write_env; require_hooks; if [[ -f "$(private_root
 finish() { require_quote "$@"; write_env; require_hooks; assert_phase smoke 5; if [[ -f "$(private_root)/phases/finish.json" ]]; then assert_phase finish 22; return; fi; local n; for n in $(seq -w 2 10); do run_claim a "${n}"; done; run_init b; run_fund b; for n in $(seq -w 1 10); do run_claim b "${n}"; done; write_phase finish 22; }
 
 forbidden_public() { jq -e '((.. | objects | keys[]?), (.. | strings)) | select(test("(seed|eligible|claimant|salt|merkle|private_claim|bundle|claim\\.tx|shielded_destination|secret|recipient_(npk|vpk|identifier)|wallet|target/)"; "i"))' >/dev/null <<<"$1"; }
+forbidden_public_rpc() {
+  local scrubbed
+  scrubbed="$(jq -c 'if (.result | type == "array" and length == 2 and (.[0] | type == "string")) then .result[0] = "<opaque-public-transaction-bytes>" else . end' <<<"$1")"
+  forbidden_public "${scrubbed}"
+}
 verify() {
   [[ $# -eq 0 ]] || die 'verify takes no arguments'; require_runtime
   local private public staging preview op file tx block response ids='[]' txs='[]' pairs='[]' distributions='[]' part n program_id deploy_tx deploy_block quote current
   private="$(private_root)"; public="$(public_root)"; [[ ! -e "${public}/manifest.json" ]] || die 'public manifest already exists'
   # Verify has no approval argument, but it still binds the same immutable quote
   # and live environment before it reads or publishes any evidence.
-  require_quote "$(<"$(quote_digest_path)")"
+  require_quote "$(<"$(quote_digest_path)")" verify
   quote="$(<"$(quote_path)")"; current="$(fingerprint)"; check_fingerprint "${current}"; [[ "$(fingerprint_identity <<<"${current}")" == "$(jq -cS .rpc_fingerprint_identity <<<"${quote}")" ]] || die 'RPC/channel fingerprint changed'
   assert_phase smoke 5; assert_phase finish 22
   staging="${private}/verify-rpc-$$"; preview="${private}/manifest-preview-$$.json"; mkdir -p "${staging}"; chmod 700 "${staging}"
   while IFS= read -r op; do
-    file="$(journal_path "${op}")"; tx="$(jq -er .tx_hash "${file}")"; block="$(jq -er .block_id "${file}")"; response="$(check_tx "${tx}" "${block}")"; forbidden_public "${response}" && die "forbidden public RPC field in ${op}"; printf '%s\n' "${response}" >"${staging}/${op}.json"; txs="$(jq -c --arg tx "${tx}" '. + [$tx]' <<<"${txs}")"
+    file="$(journal_path "${op}")"; tx="$(jq -er .tx_hash "${file}")"; block="$(jq -er .block_id "${file}")"; response="$(check_tx "${tx}" "${block}")"; forbidden_public_rpc "${response}" && die "forbidden public RPC field in ${op}"; printf '%s\n' "${response}" >"${staging}/${op}.json"; txs="$(jq -c --arg tx "${tx}" '. + [$tx]' <<<"${txs}")"
   done < <(operations)
   [[ "$(jq -r 'length' <<<"${txs}")" == 27 && "$(jq -r 'unique | length' <<<"${txs}")" == 27 ]] || die 'all 27 operation hashes must be unique'
   file="$(journal_path deploy)"; program_id="$(jq -er '.program_id | select(type == "string" and length > 0)' "${file}")"; deploy_tx="$(jq -r .tx_hash "${file}")"; deploy_block="$(jq -r .block_id "${file}")"
@@ -371,7 +383,7 @@ verify() {
     distributions="$(jq -c --arg id "${id}" --arg itx "${init_tx}" --argjson ib "${init_block}" --arg ptx "${prefund_tx}" --argjson pb "${prefund_block}" --arg ftx "${fund_tx}" --argjson fb "${fund_block}" --argjson claims "${claims}" '. + [{distribution_id:$id,init:{tx_hash:$itx,block_id:$ib},prefund:{tx_hash:$ptx,block_id:$pb},fund:{tx_hash:$ftx,block_id:$fb},claims:$claims}]' <<<"${distributions}")"
   done
   [[ "$(jq -r 'unique | length' <<<"${ids}")" == 2 && "$(jq -r 'unique | length' <<<"${pairs}")" == 20 ]] || die 'distribution IDs or claim pairs are not distinct'
-  jq -n --arg schema distributionx-lp0003-evidence-v1 --arg source "$(jq -r .execution_source_commit <<<"${quote}")" --arg tag "$(jq -r .release_tag <<<"${quote}")" --arg lez "$(jq -r .lez_commit <<<"${quote}")" --arg cli_sha256 "$(jq -r .distributionx_cli_sha256 <<<"${quote}")" --arg program_id "${program_id}" --arg tx "${deploy_tx}" --argjson block "${deploy_block}" --argjson fingerprint "${current}" --argjson distributions "${distributions}" --arg quote_sha256 "$(<"$(quote_digest_path)")" '{schema_version:$schema,execution_source_commit:$source,release_tag:$tag,planned_release_tag:$tag,lez_commit:$lez,distributionx_cli_sha256:$cli_sha256,rpc_fingerprint:$fingerprint,program_id:$program_id,program:{program_id:$program_id,deploy_tx_hash:$tx,deploy_block_id:$block},distributions:$distributions,write_counts:{smoke:5,finish:22,total:27},quote_sha256:$quote_sha256,custom_token_settlement:false,close:false}' >"${preview}"
+  jq -n --arg schema distributionx-lp0003-evidence-v1 --arg source "$(jq -r .execution_source_commit <<<"${quote}")" --arg verifier "$(git -C "${ROOT}" rev-parse HEAD)" --arg tag "$(jq -r .release_tag <<<"${quote}")" --arg lez "$(jq -r .lez_commit <<<"${quote}")" --arg cli_sha256 "$(jq -r .distributionx_cli_sha256 <<<"${quote}")" --arg program_id "${program_id}" --arg tx "${deploy_tx}" --argjson block "${deploy_block}" --argjson fingerprint "${current}" --argjson distributions "${distributions}" --arg quote_sha256 "$(<"$(quote_digest_path)")" '{schema_version:$schema,execution_source_commit:$source,verification_source_commit:$verifier,release_tag:$tag,planned_release_tag:$tag,lez_commit:$lez,distributionx_cli_sha256:$cli_sha256,rpc_fingerprint:$fingerprint,program_id:$program_id,program:{program_id:$program_id,deploy_tx_hash:$tx,deploy_block_id:$block},distributions:$distributions,write_counts:{smoke:5,finish:22,total:27},quote_sha256:$quote_sha256,custom_token_settlement:false,close:false}' >"${preview}"
   forbidden_public "$(<"${preview}")" && die 'manifest has forbidden public field'
   mkdir -p "${public}/rpc"; chmod 755 "${public}" "${public}/rpc"; cp "${staging}"/*.json "${public}/rpc/"; mv "${preview}" "${public}/manifest.json"
 }

@@ -143,6 +143,9 @@ elif [[ "${mode}" == "forbidden-value" ]]; then
 elif [[ "${mode}" == "forbidden-nested-array" ]]; then
   jq -nc --arg hash "${hash}" --argjson block "${block}" \
     '{jsonrpc:"2.0",id:1,result:[{transaction_hash:$hash,status:"included",metadata:{items:["safe",["target/private/wallet.seed"]]}},$block]}'
+elif [[ "${mode}" == "opaque-safe" ]]; then
+  jq -nc --argjson block "${block}" \
+    '{jsonrpc:"2.0",id:1,result:["AAAAsAltAAAA",$block]}'
 else
   jq -nc --arg hash "${hash}" --argjson block "${block}" \
     '{jsonrpc:"2.0",id:1,result:[{transaction_hash:$hash,status:"included"},$block]}'
@@ -634,11 +637,14 @@ rm -f "${CONTROL}/rpc-mode"
 [[ ! -e "${PUBLIC_ROOT}/manifest.json" ]] \
   || fail "verify published a manifest after nested forbidden value material"
 
+printf 'opaque-safe\n' >"${CONTROL}/rpc-mode"
 bash "${HELPER}" verify >"${TEST_ROOT}/verify.out"
+rm -f "${CONTROL}/rpc-mode"
 MANIFEST="${PUBLIC_ROOT}/manifest.json"
 jq -e --arg cli_sha256 "${CLI_SHA256}" '
   .schema_version == "distributionx-lp0003-evidence-v1" and
   .execution_source_commit == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
+  .verification_source_commit == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
   .planned_release_tag == "v9.9.1-evidence" and
   .lez_commit == "47eba256479f6f785acbd138834340703cd03401" and
   .distributionx_cli_sha256 == $cli_sha256 and
@@ -650,9 +656,15 @@ jq -e --arg cli_sha256 "${CLI_SHA256}" '
 ' "${MANIFEST}" >/dev/null || fail "manifest does not have the exact required shape/counts"
 [[ "$(find "${PUBLIC_ROOT}/rpc" -type f -name '*.json' | wc -l)" == "27" ]] \
   || fail "verify did not publish 27 raw RPC captures"
-if grep -ERiq 'wallet[._-]?seed|seed_path|eligible_address|eligibility_row|claimant_address|salt|merkle_(path|siblings)|private_claim|bundle\.json|claim\.tx|shielded_destination|secret_spending_key|recipient_(npk|vpk|identifier)|target/' "${PUBLIC_ROOT}"; then
+if find "${PUBLIC_ROOT}" -type f -name '*.json' -print0 | xargs -0 jq -s -e '
+  .[] | ((.. | objects | keys[]?),
+   (paths(strings) as $p | select($p != ["result",0]) | getpath($p))) |
+  select(test("(seed|eligible|claimant|salt|merkle|private_claim|bundle|claim\\.tx|shielded_destination|secret|recipient_(npk|vpk|identifier)|wallet|target/)"; "i"))
+' >/dev/null; then
   fail "public evidence contains secret material"
 fi
+jq -e '.result[0] == "AAAAsAltAAAA"' "${PUBLIC_ROOT}/rpc/a-claim-02.json" >/dev/null \
+  || fail "opaque public RPC transaction regression was not exercised"
 
 cli_backup="${TEST_ROOT}/distributionx-cli-before-drift"
 cp "${FAKE_BIN}/distributionx-cli" "${cli_backup}"
