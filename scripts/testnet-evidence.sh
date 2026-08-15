@@ -248,6 +248,7 @@ require_fresh_operation() {
 write_env() {
   unset DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT
   export DISTRIBUTIONX_ENV_FILE="$(private_root)/no-implicit-env.local"
+  export LEE_WALLET_HOME_DIR="$(wallet_home)"
   export DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT=0 DISTRIBUTIONX_USE_CLAIM_PRIVATE=0
   export DISTRIBUTIONX_INIT_SUBMIT_COMMAND="bash ${ROOT}/scripts/local-submit.sh init"
   export DISTRIBUTIONX_FUND_SUBMIT_COMMAND="bash ${ROOT}/scripts/local-submit.sh fund"
@@ -255,6 +256,7 @@ write_env() {
 }
 require_hooks() {
   [[ "${DISTRIBUTIONX_INIT_SUBMIT_COMMAND:-}" == "bash ${ROOT}/scripts/local-submit.sh init" && "${DISTRIBUTIONX_FUND_SUBMIT_COMMAND:-}" == "bash ${ROOT}/scripts/local-submit.sh fund" && "${DISTRIBUTIONX_CLAIM_SUBMIT_COMMAND:-}" == "bash ${ROOT}/scripts/local-submit.sh claim" ]] || die 'unexpected submit hook'
+  [[ "${LEE_WALLET_HOME_DIR:-}" == "$(wallet_home)" ]] || die 'unexpected evidence wallet home'
 }
 
 prepare() {

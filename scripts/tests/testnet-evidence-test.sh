@@ -232,6 +232,7 @@ assert_write_environment() {
   [[ "${RISC0_DEV_MODE:-}" == "0" ]]
   [[ "${DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT:-}" == "0" ]]
   [[ "${DISTRIBUTIONX_USE_CLAIM_PRIVATE:-}" == "0" ]]
+  [[ "${LEE_WALLET_HOME_DIR:-}" == "${DISTRIBUTIONX_EVIDENCE_STATE_BASE}/${DISTRIBUTIONX_EVIDENCE_RUN_ID}/private/wallet" ]]
   [[ -z "${DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT+x}" ]] || {
     echo 'token source account remained exported during write' >&2
     exit 96
