@@ -1,0 +1,224 @@
+{
+  "schema_version": "distributionx-lp0003-evidence-v1",
+  "execution_source_commit": "74f81ab9ee74ba533d3a8fa01cba9f67153f6385",
+  "verification_source_commit": "fb61565fd7f8d3409ff65f7e2f4a7297cd56078a",
+  "release_tag": "v0.1.0",
+  "planned_release_tag": "v0.1.0",
+  "lez_commit": "47eba256479f6f785acbd138834340703cd03401",
+  "distributionx_cli_sha256": "6d715f9623b79c3e9ec4b2d18524ee0b4178c00f44bf76a2d6fe0c8bafe534e3",
+  "rpc_fingerprint": {
+    "rpc_url": "https://testnet.lez.logos.co",
+    "observed_at": "2026-08-15T22:39:56Z",
+    "healthy": true,
+    "channel_id": "0101010101010101010101010101010101010101010101010101010101010101",
+    "last_block_id": 9315,
+    "program_ids": {
+      "amm": [
+        1765802831,
+        3731187220,
+        2062982807,
+        1520762763,
+        307650957,
+        4265115253,
+        384461553,
+        795532917
+      ],
+      "authenticated_transfer": [
+        583309054,
+        2344528779,
+        3806558405,
+        2890696795,
+        2257354672,
+        3978764116,
+        2273929063,
+        1518858078
+      ],
+      "pinata": [
+        2062635772,
+        3904239712,
+        2833328350,
+        20714435,
+        436307236,
+        2247732790,
+        2681611470,
+        2354246644
+      ],
+      "privacy_preserving_circuit": [
+        1334328888,
+        3910590567,
+        1244219104,
+        3671232111,
+        3138827701,
+        405554639,
+        4064616947,
+        1864368340
+      ],
+      "token": [
+        1047643340,
+        4291649067,
+        2093396023,
+        4016657193,
+        3904308476,
+        481382041,
+        2987082047,
+        2603530278
+      ]
+    },
+    "compatibility": {
+      "builtins_match": true,
+      "latest_matching_release": "v0.2.4",
+      "pinned_commit": "47eba256479f6f785acbd138834340703cd03401",
+      "exact_server_version_confirmed": false
+    }
+  },
+  "program_id": "4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3",
+  "program": {
+    "program_id": "4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3",
+    "deploy_tx_hash": "2186b9ba9e95e4926f2800e88b5d0653bda3d1669414f0a19c6daf0798576181",
+    "deploy_block_id": 8138
+  },
+  "distributions": [
+    {
+      "distribution_id": "205a0aad874f9271d886959a0ea11f92f2c0888078e88c2a93f9836d7b1ab9f1",
+      "init": {
+        "tx_hash": "550dae320cf6b76a1e7491af2235b8f28000d01554716d17dc24a77391217927",
+        "block_id": 8139
+      },
+      "prefund": {
+        "tx_hash": "a396cd392776d2ca30df463c7c6e2d85be4b1a22f88752312496f198e2b7ffe0",
+        "block_id": 8140
+      },
+      "fund": {
+        "tx_hash": "e9751d8a642301925f8dce7f74fc62020dbfd3bd4884638eb5021b50e335934f",
+        "block_id": 8141
+      },
+      "claims": [
+        {
+          "index": 1,
+          "tx_hash": "d33d097bf6035104f7df87a3e303ec6c917ccc5b4ac32a492325293bd1ff798b",
+          "block_id": 8169
+        },
+        {
+          "index": 2,
+          "tx_hash": "ccd8e3de2d2cacf2dbf330fc44a5f831bc135e681088e05cfb7dbec460ba3791",
+          "block_id": 8795
+        },
+        {
+          "index": 3,
+          "tx_hash": "dab2199c142358832b6560d798faac5530a9cff449b81d49b7793c467b8f94be",
+          "block_id": 8822
+        },
+        {
+          "index": 4,
+          "tx_hash": "50364c663e900bc1a2e33dc28aa15d966e2a43cefeba3cbcf6e30d89d4c6b197",
+          "block_id": 8852
+        },
+        {
+          "index": 5,
+          "tx_hash": "74abdc3b13a44ac5ea7ee6693c8c4758f73ee604b5fd4e9aeb8a818cd97b989c",
+          "block_id": 8881
+        },
+        {
+          "index": 6,
+          "tx_hash": "54a7642e3e3cb3c53143862e7b1b0c05c35582204512c6b0ea0866c23b707632",
+          "block_id": 8911
+        },
+        {
+          "index": 7,
+          "tx_hash": "c7607b50d7cc59f697e3e041cc003ac03df9d141964eec8f8b0889f93e087139",
+          "block_id": 8941
+        },
+        {
+          "index": 8,
+          "tx_hash": "33ac0fd25fc59c3b0ffba34131e0414c7cf45c8081559ce24384689802b7fa70",
+          "block_id": 8971
+        },
+        {
+          "index": 9,
+          "tx_hash": "1a8d2ef84dac83b94aa6345da6b1fc8e07c5b61c49a50fb6ccf2ef419769e4fb",
+          "block_id": 9000
+        },
+        {
+          "index": 10,
+          "tx_hash": "6e0df1cae4ab6032f62f33ca8516f5aba4c05b514d3dbb2001983949dffdf1e2",
+          "block_id": 9029
+        }
+      ]
+    },
+    {
+      "distribution_id": "cbc73c81147b593fd2d9e37c32aed86bf6b66a332254da47024fb4b6dbbca92a",
+      "init": {
+        "tx_hash": "de685d70bbe56400b31ed211f75d2b091fa897dcff57b1f4df443212cba2f251",
+        "block_id": 9034
+      },
+      "prefund": {
+        "tx_hash": "f8a6224f7d778ef9a7132012237f81543491ed2a4ceb6a4aeffd1eb5a542807f",
+        "block_id": 9035
+      },
+      "fund": {
+        "tx_hash": "012eb32ca504c8ca77d35d047704ca0cadb1077f58993d4b0c8454587aa90581",
+        "block_id": 9036
+      },
+      "claims": [
+        {
+          "index": 1,
+          "tx_hash": "b938e06ec8085f3878ab6683f769350c9067445f6560ce8687ab65bfdd9f708a",
+          "block_id": 9065
+        },
+        {
+          "index": 2,
+          "tx_hash": "727cdba3ca431a9abb2df1cbef82157a9acba1c18034e2a08fe93bbbd8c941f3",
+          "block_id": 9094
+        },
+        {
+          "index": 3,
+          "tx_hash": "f113f0900a5cf0b7947f6ce29e7ac5ceec13aa3b77a3d2a435ad595379543a8e",
+          "block_id": 9123
+        },
+        {
+          "index": 4,
+          "tx_hash": "3963fb37bdeb885598a7b8968bd3ec7eb5331c779ca1faa506e9d4f052b9df1b",
+          "block_id": 9152
+        },
+        {
+          "index": 5,
+          "tx_hash": "937ac7e738679848afc29ea7db265e0a100501bf77cee73bb7dfac6305fedcc4",
+          "block_id": 9180
+        },
+        {
+          "index": 6,
+          "tx_hash": "0bdd3935114b9f40d2c79af3b6e4e0497dfeed80428cc7f8b2124a3645de6e2a",
+          "block_id": 9205
+        },
+        {
+          "index": 7,
+          "tx_hash": "f1d93cc336e21193b7dfe64ddcbc0cb8c3ba0146663e8ab998b0c1827517590c",
+          "block_id": 9230
+        },
+        {
+          "index": 8,
+          "tx_hash": "5944b7542eccc806c2788353a81ab9ec0864d2f4e7c426893d8517b582b95600",
+          "block_id": 9255
+        },
+        {
+          "index": 9,
+          "tx_hash": "42a536de61a8f69429be8604cc16a1d8e662e0d34dc2e3d4530c79d9b70fee59",
+          "block_id": 9281
+        },
+        {
+          "index": 10,
+          "tx_hash": "ff9188d3ca86d92cfd39b1e8a0de2599af39c7309de68e408896f1912a993866",
+          "block_id": 9307
+        }
+      ]
+    }
+  ],
+  "write_counts": {
+    "smoke": 5,
+    "finish": 22,
+    "total": 27
+  },
+  "quote_sha256": "a87b55a6f683be2e3c7570e939cb4ab928b5730f627723396def98a41d8756de",
+  "custom_token_settlement": false,
+  "close": false
+}

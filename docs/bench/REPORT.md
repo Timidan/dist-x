@@ -30,9 +30,15 @@ Public-operation CU is the sequencer's last `user cycles` counter before that ex
 
 The machine-readable capture is [`lez-v0.2.4-cu.json`](./lez-v0.2.4-cu.json). These are local standalone-chain measurements, not public-testnet transaction claims.
 
+### Current v0.1.0 public testnet
+
+The current public evidence run executed release `v0.1.0` with `RISC0_DEV_MODE=0` against the healthy LEZ testnet endpoint whose built-ins matched pinned v0.2.4 commit `47eba256479f6f785acbd138834340703cd03401`. It deployed program `4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3`, initialized and funded two native-token distributions, and included 20 distinct `claim_ppe` transactions in 27 approved writes. The [readable transaction report](../TESTNET_EVIDENCE.md), [manifest](../testnet-evidence/v0.1.0/manifest.json), and 27 capture-time RPC responses are committed.
+
+The public RPC proves transaction inclusion but does not expose per-operation CU. Do not substitute the standalone CU table above as a public-testnet measurement; it is the exact pinned-runtime reproduction used to answer the separate cost requirement.
+
 ### rc5 PPE testnet (historical snapshot)
 
-The prior LP-0003 evidence run was captured on `https://testnet.lez.logos.co` when it ran LEZ v0.2.0-rc5. The full transaction list and capture-time `getTransaction` responses are in [docs/TESTNET_EVIDENCE.md](../TESTNET_EVIDENCE.md): fixed program id `218a07eb268df922ded961fefd7d035752b44d05f4bb5172305fb0bc54506989`, **2 distributions**, **20 `claim_ppe` claims**, and 20 token settlements. The testnet was later reset and sampled IDs now return `result: null`; fresh v0.2.4-compatible public evidence and current CU observations are still required.
+The prior LP-0003 evidence run was captured on `https://testnet.lez.logos.co` when it ran LEZ v0.2.0-rc5. Its archived section in [docs/TESTNET_EVIDENCE.md](../TESTNET_EVIDENCE.md) records fixed program id `218a07eb268df922ded961fefd7d035752b44d05f4bb5172305fb0bc54506989`, **2 distributions**, **20 `claim_ppe` claims**, and 20 token settlements. The testnet was later reset and sampled IDs now return `result: null`; use the current `v0.1.0` section above for submission evidence.
 
 `claim_ppe` runs the witness verification through privacy-preserving execution (PPE): the heavy proof is composed client-side and the sequencer verifies a single succinct receipt, so the on-chain claim's public-execution cost stays far under the 32M public-execution cap. The public-execution CU is identical across all 20 claims.
 

@@ -7,7 +7,7 @@ destination packets, serialized claims, proofs, and private receipts off screen.
 
 ## 0:00 - Exact release and architecture
 
-Show the commit SHA, `v0.1.0` release URL, and verified `SHA256SUMS`. Explain the
+Show release commit `74f81ab9ee74ba533d3a8fa01cba9f67153f6385`, the `v0.1.0` release URL, and verified `SHA256SUMS`. Explain the
 minimal flow:
 
 1. the distributor commits a Merkle root and funds the native distribution pool;
@@ -53,7 +53,7 @@ sequencer-backed replay artifact proves that claim.
 
 ## 3:45 - Current public-testnet evidence
 
-Show only the scrubbed public directory produced by:
+Show [`docs/testnet-evidence/v0.1.0/manifest.json`](./testnet-evidence/v0.1.0/manifest.json) and the linked public report produced by:
 
 ```bash
 bash scripts/testnet-evidence.sh verify
@@ -61,20 +61,23 @@ bash scripts/testnet-evidence.sh verify
 
 Point out the pinned LEZ commit, live RPC fingerprint, deployed program ID,
 two distinct distribution IDs, 20 distinct claim transaction/block pairs, and
-the exact `5 + 22 = 27` approved write count. Do not open the adjacent `private/`
-directory.
+the exact `5 + 22 = 27` approved write count. State that the execution source is
+the immutable `v0.1.0` commit and the read-only export names its newer verifier
+commit separately. Do not open the adjacent ignored `target/.../private/` tree.
 
 ## 5:00 - Privacy and replay protection
 
-Open the public manifest and one scrubbed `getTransaction` response. Show that
-they contain no eligible address, salt, signature, Merkle path, wallet seed,
-destination secret, bundle, serialized claim, or private receipt. Close with the
-nullifier invariant and the deterministic `E_ALREADY_CLAIMED` behavior covered by
-the program tests.
+Open the public manifest and summarize one `getTransaction` response without
+expanding its large opaque public transaction blob. Show that structured public
+evidence contains no eligible address, salt, signature, Merkle path, wallet
+seed, destination secret, bundle, serialized claim, or private receipt. Close
+with the nullifier invariant and the deterministic `E_ALREADY_CLAIMED` behavior
+covered by the program tests.
 
 ## Recording acceptance checklist
 
-- exact video commit equals the hosted-CI commit and release tag;
+- exact execution commit equals the hosted-CI `v0.1.0` tag; the separately named
+  verifier/docs commit also has green hosted CI;
 - both released LGX checksums verify;
 - `claim_ppe`, not `claim_private`, is shown and named;
 - native settlement is used;

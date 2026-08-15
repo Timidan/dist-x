@@ -13,7 +13,7 @@ Architecture diagram: [DistributionX.system-architecture.excalidraw](Distributio
 | Risc0 proof stack | `methods/`, `crates/distributionx-circuit/`, `distributionx-cli prove` |
 | Eligibility committed without public addresses | `init_airdrop` stores `merkle_root` and `bucket_table_hash`; encrypted rows stay in `bundle.json` |
 | Recipient claims without revealing eligible address | `claim_ppe` via PPE (`send_privacy_preserving_tx`); the public PPE message carries no instruction data/witness. Its IDL execution mode removes it from generated public-submit APIs, and program/client-generator tests cover the boundary. |
-| LEZ testnet deployment (>=2 distributions, >=20 claims) | The prior rc5 batch is archived in [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md); a fresh current-network batch is required before resubmission. |
+| LEZ testnet deployment (>=2 distributions, >=20 claims) | Current `v0.1.0` evidence: [2 native distributions and 20 included `claim_ppe` transactions](docs/TESTNET_EVIDENCE.md), with the [machine-readable manifest](docs/testnet-evidence/v0.1.0/manifest.json) and 27 RPC captures. |
 | One claim per recipient | Nullifier PDA and `E_ALREADY_CLAIMED`; tests in `crates/distributionx-program/tests/` |
 | Threat model and privacy model | [docs/WRITEUP.md](docs/WRITEUP.md) |
 | Client SDK / CLI | `crates/distributionx-client/`, `crates/distributionx-cli/` |
@@ -31,20 +31,22 @@ The previous adoption target for three outside-team distributions was dropped by
 
 ## Recorded Evidence
 
-Historical LEZ testnet run (rc5 PPE; no longer current evidence):
+Current LEZ public-testnet run:
 
 | Field | Value |
 |---|---|
-| Evidence file | [docs/TESTNET_EVIDENCE.md](docs/TESTNET_EVIDENCE.md) |
-| RPC at capture time | `https://testnet.lez.logos.co` (then LEZ v0.2.0-rc5) |
-| Program id | `218a07eb268df922ded961fefd7d035752b44d05f4bb5172305fb0bc54506989` |
-| Deploy tx | `b4e31be3c5f9e784295869904e217b52da6bfbe81f2146dd756f9827263537bc` |
-| Distributions / claims | 2 distributions, 20 witness-private `claim_ppe` claims, 20 settlements |
+| Evidence | [Readable report](docs/TESTNET_EVIDENCE.md) · [manifest](docs/testnet-evidence/v0.1.0/manifest.json) · [27 RPC captures](docs/testnet-evidence/v0.1.0/rpc) |
+| RPC / capture time | `https://testnet.lez.logos.co` · `2026-08-15T22:39:56Z` |
+| Release / execution source | `v0.1.0` · `74f81ab9ee74ba533d3a8fa01cba9f67153f6385` |
+| Network compatibility | Healthy; built-ins match pinned LEZ v0.2.4 commit `47eba256479f6f785acbd138834340703cd03401`; exact server revision is not exposed |
+| Program id | `4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3` |
+| Deploy tx | [`2186b9ba…8576181`](https://validatorinfo.com/networks/logos-testnet/tx/2186b9ba9e95e4926f2800e88b5d0653bda3d1669414f0a19c6daf0798576181/expand), LEZ block 8138 |
+| Distributions / claims | 2 native-token distributions, 20 distinct included `claim_ppe` claims |
 | Proof mode | PPE (`send_privacy_preserving_tx`), `RISC0_DEV_MODE=0` |
-| Verification | every tx resolved via `getTransaction` when captured; sampled IDs returned `null` after the later testnet reset |
-| Per-claim CU | 504401 (public execution; under the 32M cap) |
+| Approved writes | 5 smoke + 22 finish = 27 unique included transactions; no close |
+| Verification | Every transaction was re-read with `getTransaction`; journal and included block matched before the scrubbed public export was written |
 
-CU values are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md). Earlier standalone-sequencer runs are preserved under `docs/run-logs/deployment/` as historical context.
+Current v0.2.4 standalone CU and proof-time measurements are recorded in [docs/bench/REPORT.md](docs/bench/REPORT.md). The older rc5 testnet batch and earlier standalone runs remain clearly marked as historical context.
 
 ## Reviewer Entry Points
 

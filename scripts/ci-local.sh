@@ -77,6 +77,7 @@ run_tracked_check() {
     # Sentinel for the committed testnet verification artifacts: if docs/testnet-evidence/
     # gets re-gitignored, the submission's evidence links break — fail loudly here.
     "docs/testnet-evidence/b1/gettransaction-b1.jsonl"
+    "docs/testnet-evidence/v0.1.0/manifest.json"
     "scripts/ci-local.sh"
     "scripts/adapter-lock/Cargo.lock"
     "scripts/adapter-lock/Cargo.toml"
