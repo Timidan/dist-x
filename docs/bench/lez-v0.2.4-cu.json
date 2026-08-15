@@ -1,0 +1,47 @@
+{
+  "evidence_class": "standalone LEZ v0.2.4 CU and real-proof lifecycle",
+  "captured_at": "2026-08-15",
+  "distributionx_source_commit": "74f81ab9ee74ba533d3a8fa01cba9f67153f6385",
+  "lez_source_commit": "47eba256479f6f785acbd138834340703cd03401",
+  "risc0_zkvm_version": "3.0.5",
+  "program_id": "4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3",
+  "real_lifecycle": {
+    "risc0_dev_mode": "0",
+    "status": "DISTRIBUTIONX_E2E_PASS",
+    "eligibility_proof_wall_seconds": 1159.959,
+    "claim_ppe_proof_wall_seconds": 1572
+  },
+  "operations": {
+    "init_airdrop": {
+      "cu": 442994,
+      "cu_source": "standalone-sequencer:transaction-execution",
+      "tx_id": "60971c410fd5cafee3ce2af5c06ca5aac24ec5481532211c47e4064e57fd88fe",
+      "block_id": 18
+    },
+    "fund": {
+      "cu": 447471,
+      "cu_source": "standalone-sequencer:transaction-execution",
+      "tx_id": "ff6b59c5d383f933d26c547df6898a40a82f19ff3927208f0264c292d1c0a619",
+      "block_id": 21
+    },
+    "claim_ppe": {
+      "cu": 5154242,
+      "cu_source": "risc0-session-info:exact-prestate-private-program",
+      "measurement_transaction_submitted": false,
+      "real_claim_risc0_dev_mode": "0",
+      "real_claim_tx_id": "8fff0c212bacabd6ee60e1535cd8ad5e23ccfb9fd1efdb1744935cbeed9904da",
+      "real_claim_block_id": 320
+    },
+    "close": {
+      "cu": 504505,
+      "cu_source": "standalone-sequencer:transaction-execution",
+      "tx_id": "fe431ec41f65ac71248401db86c84aad7c9fab8eac3ddc5f5b9f0c8a4b96e49c",
+      "block_id": 597
+    }
+  },
+  "scope": {
+    "network": "local standalone LEZ",
+    "public_testnet_transactions_sent_for_capture": 0,
+    "public_testnet_rpc_exposes_cu": false
+  }
+}

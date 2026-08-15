@@ -41,6 +41,21 @@ done
 [[ -s "${ROOT}/scripts/adapter-lock/Cargo.lock" ]] \
   || fail "reviewed adapter lock is missing"
 
+local_submit="${ROOT}/scripts/local-submit.sh"
+adapter_manifest="${ROOT}/scripts/adapter-lock/Cargo.toml"
+grep -Fq 'risc0-zkvm = { version = "=3.0.5"' "${local_submit}" \
+  || fail "local submit adapter cannot execute the pinned claim CU measurement"
+grep -Fq 'risc0-zkvm = { version = "=3.0.5"' "${adapter_manifest}" \
+  || fail "reviewed adapter manifest does not pin claim CU measurement"
+grep -Fq 'ADAPTER_STDERR="${ADAPTER_DIR}/stderr-${op}.log"' "${local_submit}" \
+  || fail "local submit overwrites per-operation cycle evidence"
+grep -Fq 'ADAPTER_STDOUT="${ADAPTER_DIR}/stdout-${op}.log"' "${local_submit}" \
+  || fail "local submit overwrites per-operation stdout evidence"
+grep -Fq 'DISTRIBUTIONX_LEZ_CU kind=private-program' "${local_submit}" \
+  || fail "local submit does not emit claim private-program CU"
+grep -Fq 'Validated transaction with hash ${tx_id},' "${local_submit}" \
+  || fail "public-operation CU capture is not scoped to its transaction"
+
 workflow="${ROOT}/.github/workflows/distributionx-ci.yml"
 mapfile -t workflow_block_timeouts < <(
   sed -nE \
@@ -75,6 +90,8 @@ grep -Fq '"${RZUP_BIN}" default r0vm "${RISC0_R0VM_VERSION}"' \
   || fail "Risc0 setup does not reactivate an already-installed r0vm"
 grep -Fq 'test "${GITHUB_REF_NAME}" = "v${core_version}"' "${workflow}" \
   || fail "release tag is not required to match the package versions"
+grep -Fq 'RISC0_INFO: "1"' "${workflow}" \
+  || fail "canonical lifecycle does not capture Risc0 cycle metrics"
 grep -Fq 'id: lifecycle-log-scan' "${workflow}" \
   || fail "lifecycle evidence scan has no stable step id"
 grep -Fq "if: always() && steps.lifecycle-log-scan.outcome == 'success'" "${workflow}" \

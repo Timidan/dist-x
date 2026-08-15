@@ -106,6 +106,7 @@ hex = "0.4.3"
 url = "2.5.8"
 lee = { path = "${LEZ_REPO}/lee/state_machine" }
 lee_core = { path = "${LEZ_REPO}/lee/state_machine/core", features = ["host"] }
+risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["client", "std"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sequencer_service_rpc = { path = "${LEZ_REPO}/lez/sequencer/service/rpc", features = ["client"] }
@@ -131,8 +132,13 @@ use lee::{
     privacy_preserving_transaction::circuit::ProgramWithDependencies,
     program::Program,
 };
-use lee_core::{Identifier, NullifierPublicKey, program::PdaSeed};
+use lee_core::{
+    Identifier, NullifierPublicKey,
+    account::{Account, AccountWithMetadata},
+    program::{PdaSeed, ProgramOutput},
+};
 use lee_core::encryption::ViewingPublicKey;
+use risc0_zkvm::{ExecutorEnv, default_executor};
 use serde_json::{json, Value};
 use sequencer_service_rpc::{RpcClient as _, SequencerClientBuilder};
 use sha2::{Digest as _, Sha256};
@@ -560,6 +566,50 @@ fn submit_claim_ppe(args: &Value) -> Result<Value, String> {
     let wallet = open_wallet(args)?;
     trace_stage("claim_ppe.open_wallet.ok");
     let rt = tokio::runtime::Runtime::new().map_err(|e| format!("tokio runtime: {e}"))?;
+    if std::env::var_os("RISC0_INFO").is_some() {
+        let public_ids = [airdrop, nullifier_record, vault];
+        let mut pre_states = rt.block_on(async {
+            let mut states = Vec::with_capacity(public_ids.len() + 1);
+            for account_id in public_ids {
+                let account = wallet
+                    .get_account_public(account_id)
+                    .await
+                    .map_err(|e| format!("fetch claim pre-state {account_id}: {e}"))?;
+                states.push(AccountWithMetadata::new(account, false, account_id));
+            }
+            Ok::<_, String>(states)
+        })?;
+        pre_states.push(AccountWithMetadata::new(Account::default(), true, recipient));
+
+        let mut env_builder = ExecutorEnv::builder();
+        env_builder
+            .write(&program_id)
+            .map_err(|e| format!("measure program id: {e}"))?;
+        env_builder
+            .write(&Option::<ProgramId>::None)
+            .map_err(|e| format!("measure caller program id: {e}"))?;
+        env_builder
+            .write(&pre_states)
+            .map_err(|e| format!("measure pre-states: {e}"))?;
+        env_builder
+            .write(&instruction_data)
+            .map_err(|e| format!("measure instruction: {e}"))?;
+        let session = default_executor()
+            .execute(
+                env_builder.build().map_err(|e| format!("measure executor env: {e}"))?,
+                program.elf(),
+            )
+            .map_err(|e| format!("measure claim_ppe execution: {e}"))?;
+        let _: ProgramOutput = session
+            .journal
+            .decode()
+            .map_err(|e| format!("measure claim_ppe output: {e}"))?;
+        eprintln!(
+            "DISTRIBUTIONX_LEZ_CU kind=private-program program_id={} cycles={}",
+            program_id_hex(&program_id),
+            session.cycles(),
+        );
+    }
     let started = Instant::now();
     trace_stage("claim_ppe.send_privacy_preserving_tx.start");
     let (tx_hash, secrets) = rt.block_on(async {
@@ -1203,42 +1253,50 @@ update_receipt_cu() {
     receipt_name="init_airdrop"
   fi
   local receipt_path="${receipts_dir}/${receipt_name}.json"
-  local deployment_path="${DISTRIBUTIONX_STATE_DIR:-${ROOT}/target/distributionx-testnet}/deployment.json"
   local cu_log="${DISTRIBUTIONX_LEZ_CU_LOG:-/tmp/distributionx-standalone-sequencer-${UID:-$(id -u)}.log}"
   local adapter_stderr="${ADAPTER_STDERR:-}"
 
-  [[ -f "${receipt_path}" && -f "${deployment_path}" ]] || return 0
+  [[ -f "${receipt_path}" ]] || return 0
   command -v jq >/dev/null 2>&1 || return 0
 
-  local tx_id program_id kind line cu source tmp
+  local tx_id cu source tmp
   tx_id="$(printf '%s\n' "${response}" | jq -r '.tx_id // empty' 2>/dev/null || true)"
-  program_id="$(jq -r '.program_id // empty' "${deployment_path}" 2>/dev/null || true)"
-  [[ -n "${tx_id}" && -n "${program_id}" ]] || return 0
+  [[ -n "${tx_id}" ]] || return 0
 
-  kind="public"
-  line="$(
-    {
-      if [[ -n "${adapter_stderr}" && -f "${adapter_stderr}" ]]; then
-        grep "DISTRIBUTIONX_LEZ_CU kind=${kind} program_id=${program_id} cycles=" "${adapter_stderr}" 2>/dev/null || true
-      fi
-      if [[ -f "${cu_log}" ]]; then
-        grep "DISTRIBUTIONX_LEZ_CU kind=${kind} program_id=${program_id} cycles=" "${cu_log}" 2>/dev/null || true
-      fi
-    } | tail -n 1
-  )"
-  cu="${line##*cycles=}"
-  [[ "${cu}" =~ ^[0-9]+$ ]] || return 0
-
-  source="standalone-sequencer:${kind}"
   tmp="$(mktemp)"
-  jq --argjson cu "${cu}" --arg source "${source}" \
-    '.cu = $cu | .cu_source = $source' \
-    "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
+  if [[ "${op}" == "claim" ]]; then
+    local line=""
+    if [[ -n "${adapter_stderr}" && -f "${adapter_stderr}" ]]; then
+      line="$(grep 'DISTRIBUTIONX_LEZ_CU kind=private-program .* cycles=' "${adapter_stderr}" | tail -n 1 || true)"
+    fi
+    cu="${line##*cycles=}"
+    [[ "${cu}" =~ ^[0-9]+$ ]] || { rm -f "${tmp}"; return 0; }
+    source="risc0-adapter:private-program"
+    jq --argjson cu "${cu}" --arg source "${source}" \
+      '.cu = $cu | .cu_source = $source' \
+      "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
+  else
+    [[ -f "${cu_log}" ]] || { rm -f "${tmp}"; return 0; }
+    cu="$({
+      awk -v marker="Validated transaction with hash ${tx_id}," '
+        match($0, /[0-9]+ user cycles/) {
+          latest = substr($0, RSTART, RLENGTH)
+          sub(/ user cycles/, "", latest)
+        }
+        index($0, marker) { print latest; exit }
+      ' "${cu_log}"
+    } || true)"
+    [[ "${cu}" =~ ^[0-9]+$ ]] || { rm -f "${tmp}"; return 0; }
+    source="standalone-sequencer:transaction-execution"
+    jq --argjson cu "${cu}" --arg source "${source}" \
+      '.cu = $cu | .cu_source = $source' \
+      "${receipt_path}" > "${tmp}" && mv "${tmp}" "${receipt_path}"
+  fi
   rm -f "${tmp}"
 }
 
-ADAPTER_STDOUT="${ADAPTER_DIR}/stdout.log"
-ADAPTER_STDERR="${ADAPTER_DIR}/stderr.log"
+ADAPTER_STDOUT="${ADAPTER_DIR}/stdout-${op}.log"
+ADAPTER_STDERR="${ADAPTER_DIR}/stderr-${op}.log"
 if [[ "${DISTRIBUTIONX_LOCAL_SUBMIT_COMPILE_ONLY:-0}" == "1" ]]; then
   cargo +1.94.0 check -q --locked --release --offline --manifest-path "${ADAPTER_DIR}/Cargo.toml"
 fi

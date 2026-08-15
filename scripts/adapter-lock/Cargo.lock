@@ -1705,6 +1705,7 @@ dependencies = [
  "hex",
  "lee",
  "lee_core",
+ "risc0-zkvm",
  "sequencer_service_rpc",
  "serde",
  "serde_json",

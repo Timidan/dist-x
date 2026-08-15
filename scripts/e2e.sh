@@ -543,10 +543,6 @@ distributionx_run_step claim cli claim \
   --serialized-lez-tx "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}"
 assert_marker claim "CLAIM_OK"
 
-if [[ -x "${ROOT}/scripts/extract-cu.sh" ]]; then
-  bash "${ROOT}/scripts/extract-cu.sh" >/dev/null
-fi
-
 if cli claim --airdrop "${DISTRIBUTIONX_AIRDROP_NAME}" --proof "${STATE_DIR}/proof.json" --relayer "${DISTRIBUTIONX_RELAYER_URL}" --serialized-lez-tx "${DISTRIBUTIONX_SERIALIZED_LEZ_TX}" >"${LOG_DIR}/double-claim.log" 2>&1; then
   echo "double claim unexpectedly succeeded" >&2
   exit 1
@@ -568,6 +564,10 @@ if flag_enabled "${CLOSE_AFTER_E2E}"; then
   assert_marker close "CLOSE_OK"
 else
   echo "DISTRIBUTIONX_CLOSE_SKIPPED mode=${mode}"
+fi
+
+if [[ -x "${ROOT}/scripts/extract-cu.sh" ]]; then
+  bash "${ROOT}/scripts/extract-cu.sh" >/dev/null
 fi
 
 echo "DISTRIBUTIONX_E2E_PASS logs=${LOG_DIR}"

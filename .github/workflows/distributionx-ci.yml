@@ -199,6 +199,7 @@ jobs:
           DISTRIBUTIONX_SEQUENCER_BLOCK_CREATE_TIMEOUT: "5s"
           DISTRIBUTIONX_USE_CUSTOM_TOKEN_SETTLEMENT: "0"
           RISC0_DEV_MODE: "0"
+          RISC0_INFO: "1"
         run: bash scripts/e2e.sh ci-localnet
 
       - name: Reject private material in lifecycle logs

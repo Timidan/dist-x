@@ -50,6 +50,7 @@ docs/*
 !docs/RC5_PPE_HANDOFF.md
 !docs/bench/
 docs/bench/*
+!docs/bench/lez-v0.2.4-cu.json
 # Witness-free testnet verification artifacts (getTransaction jsonl, receipts,
 # claim summaries). The seed-bearing state dirs under target/ stay ignored.
 !docs/testnet-evidence/
