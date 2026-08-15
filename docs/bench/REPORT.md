@@ -35,21 +35,3 @@ The machine-readable capture is [`lez-v0.2.4-cu.json`](./lez-v0.2.4-cu.json). Th
 The current public evidence run executed release `v0.1.0` with `RISC0_DEV_MODE=0` against the healthy LEZ testnet endpoint whose built-ins matched pinned v0.2.4 commit `47eba256479f6f785acbd138834340703cd03401`. It deployed program `4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3`, initialized and funded two native-token distributions, and included 20 distinct `claim_ppe` transactions in 27 approved writes. The [readable transaction report](../TESTNET_EVIDENCE.md), [manifest](../testnet-evidence/v0.1.0/manifest.json), and 27 capture-time RPC responses are committed.
 
 The public RPC proves transaction inclusion but does not expose per-operation CU. Do not substitute the standalone CU table above as a public-testnet measurement; it is the exact pinned-runtime reproduction used to answer the separate cost requirement.
-
-### rc5 PPE testnet (historical snapshot)
-
-The prior LP-0003 evidence run was captured on `https://testnet.lez.logos.co` when it ran LEZ v0.2.0-rc5. Its archived section in [docs/TESTNET_EVIDENCE.md](../TESTNET_EVIDENCE.md) records fixed program id `218a07eb268df922ded961fefd7d035752b44d05f4bb5172305fb0bc54506989`, **2 distributions**, **20 `claim_ppe` claims**, and 20 token settlements. The testnet was later reset and sampled IDs now return `result: null`; use the current `v0.1.0` section above for submission evidence.
-
-`claim_ppe` runs the witness verification through privacy-preserving execution (PPE): the heavy proof is composed client-side and the sequencer verifies a single succinct receipt, so the on-chain claim's public-execution cost stays far under the 32M public-execution cap. The public-execution CU is identical across all 20 claims.
-
-| Operation | CU (public execution) | Source |
-|---|---:|---|
-| `init_airdrop` | 442721 | standalone reproduction (cycle count is deterministic per program) |
-| `fund` | 447195 | standalone reproduction |
-| `claim_ppe` (each of 20 claims) | 504401 | archived rc5 evidence receipts (`docs/testnet-evidence/{b1,c1}/receipts/*.json`) |
-
-The testnet RPC `getTransaction` response did not expose a CU field; the values above came from the local LEZ public-execution cycle counter written alongside each capture-time claim. They remain historical measurements for the rc5 program image and must not be presented as current v0.2.4 observations.
-
-### Standalone LEZ (pre-rc5, historical)
-
-Earlier CU values were captured against a standalone LEZ sequencer on the pre-rc5 receipt-based `claim` path. The tracked [`standalone-lez-shielded-real-proof-2026-05-06.json`](../run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json) snapshot is retained only as historical context.

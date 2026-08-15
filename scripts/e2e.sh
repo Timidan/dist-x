@@ -110,7 +110,7 @@ cleanup_ci_localnet() {
 
 setup_ci_localnet() {
   # Canonical CI is secret-free and does not inherit a developer's possibly
-  # stale rc5 .env.local. Every runtime path is version-scoped below.
+  # stale .env.local. Every runtime path is version-scoped below.
   export DISTRIBUTIONX_ENV_FILE=/dev/null
   export DISTRIBUTIONX_LEZ_REPO="${DISTRIBUTIONX_LEZ_REPO:-${ROOT}/.scaffold/cache/repos/lez/v0.2.4}"
   export LEZ_WALLET_BIN="${LEZ_WALLET_BIN:-${ROOT}/target/lez-v0.2.4-build/release/wallet}"

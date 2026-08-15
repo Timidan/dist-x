@@ -1,6 +1,6 @@
 # DistributionX Write-Up
 
-> **Current path.** The repository pins LEZ v0.2.4 and ships `claim_ppe` through LEZ privacy-preserving execution (PPE). Witness privacy comes from the PPE transaction format: instruction data and witness fields are not present in the public transaction message. The receipt-based public `claim` instruction remains in the program but exceeds the public-execution budget for this circuit; `claim_private` remains an opt-in, witness-revealing diagnostic fallback. The previous two-distribution rc5 testnet run is an archived snapshot whose transaction IDs no longer resolve after a testnet reset; see [TESTNET_EVIDENCE.md](TESTNET_EVIDENCE.md).
+> **Current path.** The repository pins LEZ v0.2.4 and ships `claim_ppe` through LEZ privacy-preserving execution (PPE). Witness privacy comes from the PPE transaction format: instruction data and witness fields are not present in the public transaction message. The receipt-based public `claim` instruction remains in the program but exceeds the public-execution budget for this circuit; `claim_private` remains an opt-in, witness-revealing diagnostic fallback.
 
 ## Commitment Scheme
 

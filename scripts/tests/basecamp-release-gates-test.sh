@@ -7,7 +7,6 @@ WIZARD_QML="${ROOT}/basecamp-app/src/qml/screens/DistributorWizard.qml"
 LOAD_SMOKE="${ROOT}/scripts/lgx-load-smoke.sh"
 LOAD_PROBE="${ROOT}/scripts/lgx-load-probe.mjs"
 README="${ROOT}/README.md"
-RC5_HANDOFF="${ROOT}/docs/RC5_PPE_HANDOFF.md"
 
 fail() {
   printf 'basecamp-release-gates-test: %s\n' "$*" >&2
@@ -77,11 +76,5 @@ grep -Fq 'unset DISTRIBUTIONX_TOKEN_SOURCE_ACCOUNT' "${README}" \
   || fail "the operator handoff does not clear inherited custom-token state"
 grep -Fq 'The publishable output is only' "${README}" \
   || fail "the operator handoff does not isolate witness-free public evidence"
-
-grep -Fq 'Historical only. Do not follow this file as an operator runbook.' "${RC5_HANDOFF}" \
-  || fail "the rc5 handoff is not prominently archived"
-if grep -Fq 'Testnet runs **LEZ v0.2.0-rc5**' "${RC5_HANDOFF}"; then
-  fail "the rc5 handoff still describes the historical network as current"
-fi
 
 echo "basecamp-release-gates-test: PASS"

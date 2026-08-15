@@ -1,3 +1,0 @@
--- attempt 1 --
-DISTRIBUTIONX_LOCAL_SUBMIT_WARNING decode shielded foreign token account skipped: recipient account is not owned by the submitter wallet
-{"airdrop":"lp0003-rc5-b1","amount":1,"relayer":"testnet","status":"CLAIM_OK","total_claimed":8,"tx_id":"0f38506d80f86b41d93d6f79c09eab851f7ea71788eace759271c159fa791aa2"}

@@ -55,7 +55,7 @@ export CARGO_HOME="${CARGO_HOME:-${ROOT}/target/cargo-home}"
 
 # The project and LEZ v0.2.4 both resolve the v0.5.3 circuits. Prefer an
 # explicitly supplied installation, then the repository copy, then the exact
-# user cache. No rc5 build-output paths are injected.
+# user cache. No legacy build-output paths are injected.
 cached_lbc="${HOME}/.cache/logos/blockchain/logos-blockchain-circuits-v0.5.3-linux-x86_64"
 if [[ -z "${LBC_ROOT_DIR:-}" ]]; then
   if [[ -d "${ROOT}/vendor/logos-blockchain-circuits/signature" && -d "${ROOT}/vendor/logos-blockchain-circuits/lib" ]]; then

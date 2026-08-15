@@ -14,7 +14,7 @@ Cargo.lock.bak
 vendor/*
 !vendor/nssa_core/
 !vendor/nssa_core/**
-# Vendored SPEL framework fork (ported to LEZ rc5 lee/lez). Source only; target/ stays ignored via **/target/ above.
+# Vendored SPEL framework fork. Source only; target/ stays ignored via **/target/ above.
 !vendor/spel-framework/
 !vendor/spel-framework/**
 vendor/spel-framework/target/
@@ -46,20 +46,14 @@ docs/
 docs/*
 !docs/WRITEUP.md
 !docs/TESTNET_EVIDENCE.md
-!docs/RC5_PPE_HANDOFF.md
 !docs/bench/
 docs/bench/*
 !docs/bench/lez-v0.2.4-cu.json
-# Witness-free testnet verification artifacts (getTransaction jsonl, receipts,
-# claim summaries). The seed-bearing state dirs under target/ stay ignored.
+# Witness-free testnet verification artifacts. Private run state stays under target/.
 !docs/testnet-evidence/
-!docs/testnet-evidence/**
-!docs/run-logs/
-docs/run-logs/*
-!docs/run-logs/deployment/
-docs/run-logs/deployment/*
-!docs/run-logs/deployment/standalone-lez-real-proof-2026-05-06.json
-!docs/run-logs/deployment/standalone-lez-shielded-real-proof-2026-05-06.json
+docs/testnet-evidence/*
+!docs/testnet-evidence/v0.1.0/
+!docs/testnet-evidence/v0.1.0/**
 # Upstream issue drafts stay local-only; file real GitHub issues instead.
 solutions/
 !solutions/

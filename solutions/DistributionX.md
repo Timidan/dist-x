@@ -14,7 +14,7 @@ Rust crates pass locally. The demo scripts require real deploy and submit adapte
 
 ## Performance
 
-Host cryptographic benchmarks and historical LEZ cycle/CU measurements are recorded in `docs/bench/REPORT.md`. Fresh v0.2.4 standalone and current public-testnet measurements are pending and remain distinct from the archived rc5 evidence.
+Current host benchmarks, LEZ v0.2.4 operation costs, and public-testnet results are recorded in `docs/bench/REPORT.md`.
 
 ## Supportability
 
