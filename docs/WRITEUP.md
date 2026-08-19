@@ -2,6 +2,10 @@
 
 > **Current path.** The repository pins LEZ v0.2.4 and ships `claim_ppe` through LEZ privacy-preserving execution (PPE). Witness privacy comes from the PPE transaction format: instruction data and witness fields are not present in the public transaction message. The receipt-based public `claim` instruction remains in the program but exceeds the public-execution budget for this circuit; `claim_private` remains an opt-in, witness-revealing diagnostic fallback.
 
+The shipping demo intentionally keeps the flow to native LEZ payout only for the
+minimal compatibility path; custom-token settlement is an optional second-phase
+transaction path that is not part of the default proofing flow.
+
 ## Commitment Scheme
 
 DistributionX parses an eligibility CSV into amount buckets and computes `leaf = H_LEAF(address, bucket_id, salt)` for each row. The on-chain commitment is the fixed-depth Merkle root. The bucket table is hashed separately and bound into the airdrop id and encrypted bundle associated data.

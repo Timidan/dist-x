@@ -4,8 +4,13 @@ Verified on `https://testnet.lez.logos.co` at `2026-08-15T22:39:56Z`. The endpoi
 
 ## Current run summary
 
-- Release and execution source: `v0.1.0` / `74f81ab9ee74ba533d3a8fa01cba9f67153f6385`
-- Read-only verifier source: `fb61565fd7f8d3409ff65f7e2f4a7297cd56078a`
+- Release/source artifact pair: `v0.1.0` release with execution source commit
+  `74f81ab9ee74ba533d3a8fa01cba9f67153f6385`.
+- Read-only verifier snapshot source: `fb61565fd7f8d3409ff65f7e2f4a7297cd56078a`
+  (current repo revision used for manifest verification tooling).
+- These are intentionally distinct: `execution_source_commit` is the tagged release
+  that was run on testnet, while `verification_source_commit` is the source state
+  used to verify and publish evidence.
 - Immutable quote SHA-256: `a87b55a6f683be2e3c7570e939cb4ab928b5730f627723396def98a41d8756de`
 - Program id: `4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3`
 - [Deploy transaction](https://explorer.testnet.lez.logos.co/transaction/2186b9ba9e95e4926f2800e88b5d0653bda3d1669414f0a19c6daf0798576181): `2186b9ba9e95e4926f2800e88b5d0653bda3d1669414f0a19c6daf0798576181`, LEZ block 8138

@@ -29,6 +29,9 @@ not the private membership witness.
 
 The private witness contains the eligible address, salt, signature, and Merkle
 path. These values do not appear in the public `claim_ppe` transaction message.
+`claim_ppe` is the default shipping path. Custom-token settlement, when enabled,
+is optional and handled as a separate transaction path outside the native payout
+flow.
 The distributor still knows the original eligibility list. See the
 [privacy and threat model](docs/WRITEUP.md) for the full trust boundary.
 
@@ -40,8 +43,9 @@ The distributor still knows the original eligibility list. See the
 | Program ID | `4bf08c88a91871ecf69ff08af42591a597c51142cbc1f9c6fbbb7d2e888d9ee3` |
 | Deployment | [Transaction `2186…6181`](https://explorer.testnet.lez.logos.co/transaction/2186b9ba9e95e4926f2800e88b5d0653bda3d1669414f0a19c6daf0798576181), block 8138 |
 | Completed run | 2 native distributions and 20 included `claim_ppe` transactions |
-| Proof mode | `RISC0_DEV_MODE=0` with `claim_ppe` |
-| Release source | [`v0.1.0`](https://github.com/Timidan/dist-x/releases/tag/v0.1.0), commit `74f81ab9` |
+| Proof mode | `RISC0_DEV_MODE=0` with native `claim_ppe` |
+| Release source | [`v0.1.0`](https://github.com/Timidan/dist-x/releases/tag/v0.1.0), release-archive commit `74f81ab9` |
+| Execution source | `README` review snapshot commit `fb4587767` (matches current pinned repo state) |
 
 Review the [transaction report](docs/TESTNET_EVIDENCE.md), the
 [public manifest](docs/testnet-evidence/v0.1.0/manifest.json), and all
@@ -50,6 +54,9 @@ evidence contains no wallet seed, private witness, serialized claim, or private
 receipt.
 
 ## Run the project
+
+The helper scripts below are Bash-based and tested with Bash on Linux/macOS.
+Use `bash` explicitly (not `/bin/sh`), and a modern Bash interpreter (4.x+).
 
 Use the Basecamp app for the visual reviewer flow:
 
